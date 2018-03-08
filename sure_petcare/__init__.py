@@ -15,25 +15,54 @@ class SurePetFlap(object):
     status = {1 : 'Inside', 2 : 'Outside'}
     def __init__(self, email_address=None, password=None, device_id=None):
         if email_address ==None or password==None or device_id==None:
-            raise ValueError('Please provice, email, password and device id')
+            raise ValueError('Please provide, email, password and device id')
         self.debug=True
         self.Status={}
         self.pets={}
         self.s = requests.session()
         self.email_address = email_address
         self.password = password
-        self.device_id = device_id
-        self.update_authtoken()
-        self.update_household_id()
-        self.get_device_ids()
-        self.get_pet_info()
-        self.update_pet_status()
+        self.device_id = device_id        
+        self.update()
+        
     def update(self):
         self.update_authtoken()
         self.update_household_id()
         self.get_device_ids()
         self.get_pet_info()
         self.update_pet_status()
+        self.flap_status = self.get_flap_status()
+        self.router_status = self.get_router_status()
+        self.household = self.get_housedata()
+        self.curfew_status = [ i for i in self.household['data'] if i['type'] == 20 ]
+        self.curfew_lock_info=json.loads(self.curfew_status[0]['data'])['locked']
+    def locked(self):
+        lock = self.flap_status['data']['locking']['mode']
+        if lock == 0 :
+            return False
+        if lock == 1 or lock == 2 or lock ==3 :
+            return True
+        if lock == 4 :
+            if self.curfew_lock_info :
+                return True
+            else:
+                return False
+    def lock_mode(self):
+        lock = self.flap_status['data']['locking']['mode']
+        if lock == 0:
+            return 'Unlocked'
+        elif lock == 1:
+            return 'Keep pets in'
+        elif lock == 2:
+            return 'Keep pets out'
+        elif lock == 3:
+            return 'Locked'
+        elif lock == 4:
+            #We are in curfew mode, check log to see if in locked or unlocked.
+            if self.curfew_lock_info :
+                return 'Locked with curfew'
+            else:
+                return 'Unlocked with curfew'
     def print_timeline(self, petid, entry_type=None):
         petdata = self.petstatus[petid]
         for movement in petdata['data']:
@@ -155,6 +184,11 @@ class SurePetFlap(object):
         else:
             #Get last update
             for movement in self.petstatus[petid]['data']:
+                if movement['type'] == 20 or movement['type'] == 6:
+                    #type 20 == curfew
+                    #type 7 == Cat entry
+                    #type 6 == Manual change of entry
+                    continue
                 if movement['movements'][0]['direction'] != 0:
                     return self.status[movement['movements'][0]['direction']]
             return 'Unknown'
@@ -179,30 +213,30 @@ class SurePetFlap(object):
         if self.debug:
             print(string)
 
-    def getmac():
-        mac = None
-        folders = os.listdir('/sys/class/net/')
-        for interface in folders:
-            if interface =='lo':
-                continue
-            try:
-                mac = open('/sys/class/net/'+interface+'/address').readline()
-            except Exception as e:
-                print(e)
-        return mac[:-1] #trim new line
+def getmac():
+    mac = None
+    folders = os.listdir('/sys/class/net/')
+    for interface in folders:
+        if interface =='lo':
+            continue
+        try:
+            mac = open('/sys/class/net/'+interface+'/address').readline()
+        except Exception as e:
+            print(e)
+    return mac[:-1] #trim new line
 
-    def gen_device_id():
-        mac = getmac()
-        sum = 0 
-        for i in mac:
-            if i ==':' or i == '-':
-                continue
-            if ord(i) >= 48 and  ord(i) <= 58:
-                sum +=int(i)
-            elif ord(i) >= 97 and ord(i) <= 102:
-                sum += 10 + ord(i)-97
-            elif ord(i) >= 65 and ord(i) <= 80:
-                sum += 10 + ord(i)-65
-            sum = sum << 4
-        sum = str(sum)[0:10]
-        return sum
+def gen_device_id():
+    mac = getmac()
+    sum = 0 
+    for i in mac:
+        if i ==':' or i == '-':
+            continue
+        if ord(i) >= 48 and  ord(i) <= 58:
+            sum +=int(i)
+        elif ord(i) >= 97 and ord(i) <= 102:
+            sum += 10 + ord(i)-97
+        elif ord(i) >= 65 and ord(i) <= 80:
+            sum += 10 + ord(i)-65
+        sum = sum << 4
+    sum = str(sum)[0:10]
+    return sum
