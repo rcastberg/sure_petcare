@@ -66,7 +66,7 @@ class SurePetFlap(object):
     def print_timeline(self, petid, entry_type=None):
         petdata = self.petstatus[petid]
         for movement in petdata['data']:
-            if movement['type'] == 20 or movement['type'] == 6:
+            if movement['type'] == 20 or movement['type'] == 6  or movement['type'] == 12:
                 #type 20 == curfew
                 #type 7 == Cat entry
                 #type 6 == Manual change of entry
@@ -184,7 +184,7 @@ class SurePetFlap(object):
         else:
             #Get last update
             for movement in self.petstatus[petid]['data']:
-                if movement['type'] == 20 or movement['type'] == 6:
+                if movement['type'] == 20 or movement['type'] == 6 or movement['type'] == 12:
                     #type 20 == curfew
                     #type 7 == Cat entry
                     #type 6 == Manual change of entry
