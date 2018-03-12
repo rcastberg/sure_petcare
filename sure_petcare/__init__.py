@@ -163,7 +163,7 @@ class SurePetFlap(object):
             headers = self.create_header(Authorization=self.AuthToken)
         response = self.s.get(url, headers=headers, params=params)
         if response.status_code == 304:
-            print('Got a 304')
+            #print('Got a 304')
             return self.Status[url]['LastData']
         self.Status[url]['LastData']  = json.loads(response.content.decode('utf-8'))
         self.Status[url]['ETag'] = response.headers['ETag'][1:-1]
