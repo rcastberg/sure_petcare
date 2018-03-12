@@ -35,7 +35,13 @@ class SurePetFlap(object):
         self.router_status = self.get_router_status()
         self.household = self.get_housedata()
         self.curfew_status = [ i for i in self.household['data'] if i['type'] == 20 ]
-        self.curfew_lock_info=json.loads(self.curfew_status[0]['data'])['locked']
+        self.curfew_lock_info=self.curfew_lock_infocalc()
+        
+    def curfew_lock_infocalc(self):
+        if len(self.curfew_status) > 0:
+            return json.loads(self.curfew_status[0]['data'])['locked']
+        else:
+            return 'Unknown' #new accounts might not be populated with the relevent information
     def locked(self):
         lock = self.flap_status['data']['locking']['mode']
         if lock == 0 :
