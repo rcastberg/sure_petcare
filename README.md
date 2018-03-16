@@ -13,7 +13,7 @@ Data types:
  6 : Lock status changed, locked in/out or curfew change
  7 : Unregistered animal entered/left
 12 : User/new user info
-20 : Curfew information
+20 : Curfew information, Not available as "viewer" user
 
 Movement types:
  0 : Manual entry/leaving registration

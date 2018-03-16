@@ -70,19 +70,22 @@ class SurePetFlap(object):
             else:
                 return 'Unlocked with curfew'
     def print_timeline(self, petid, entry_type=None):
+        """Print timeline for a particular pet, specify entry_type to only get one direction"""
         petdata = self.petstatus[petid]
         for movement in petdata['data']:
             if movement['type'] == 20 or movement['type'] == 6  or movement['type'] == 12:
                 #type 20 == curfew
-                #type 7 == Cat entry
-                #type 6 == Manual change of entry
+                #type 12 == User info/chage
+                #type 6 == Lock status change
                 continue
             try:
                 if entry_type is not None:
-                    if movement['movements'][0]['direction'] == entry_type:
-                        print(movement['movements'][0]['created_at'], self.direction[movement['movements'][0]['direction']])
+                    if movement['movements'][0]['tag_id'] == petid:
+                        if movement['movements'][0]['direction'] == entry_type:
+                            print(movement['movements'][0]['created_at'], self.direction[movement['movements'][0]['direction']])
                 else:
-                    print(movement['movements'][0]['created_at'], self.direction[movement['movements'][0]['direction']])
+                    if movement['movements'][0]['tag_id'] == petid:
+                        print(movement['movements'][0]['created_at'], self.direction[movement['movements'][0]['direction']])
             except Exception as e:
                 print(e)
                 print(i)
