@@ -3,6 +3,7 @@
 Access the sure petcare access information
 """
 
+import collections
 import json
 import requests
 from datetime import datetime, timedelta
@@ -10,6 +11,18 @@ import os
 
 DIRECTION ={0:'Looked through',1:'Entered House',2:'Left House'}
 INOUT_STATUS = {1 : 'Inside', 2 : 'Outside'}
+
+# The following event types are known, eg EVT.CURFEW.
+EVT = (('MOVE', 0),
+       ('LOCK_ST', 6),
+       ('USR_IFO', 12),
+       ('USR_NEW', 17),
+       ('CURFEW', 20),
+       )
+y = [x[1] for x in EVT]
+EVT = collections.namedtuple( 'EVT', [x[0] for x in EVT] )
+EVT = EVT( *y )
+
 
 # REST API endpoints (no trailing slash)
 URL_AUTH = 'https://app.api.surehub.io/api/auth/login'
@@ -249,14 +262,7 @@ class SurePetFlapMixin( object ):
         """Print timeline for a particular pet, specify entry_type to only get one direction"""
         petdata = self.petstatus[petid]
         for movement in petdata['data']:
-            if movement['type'] in [20, 6, 12]:
-                #type 20 == curfew
-                #type 12 == User info/chage
-                #type 6 == Lock status change
-
-                # XXX Why exclude manual entries?  They affect status as
-                #     reflected by the website, so surely this API should
-                #     also.
+            if movement['type'] in [EVT.LOCK_ST, EVT.USR_IFO, EVT.USR_NEW, EVT.CURFEW]:
                 continue
             try:
                 if entry_type is not None:
@@ -320,14 +326,7 @@ class SurePetFlapMixin( object ):
         else:
             #Get last update
             for movement in self.petstatus[petid]['data']:
-                if movement['type'] in [20, 6, 12]:
-                    #type 20 == curfew
-                    #type 7 == Cat entry
-                    #type 6 == Manual change of entry
-
-                    # XXX Why exclude manual entries?  They affect status as
-                    #     reflected by the website, so surely this API should
-                    #     also.
+                if movement['type'] in [EVT.LOCK_ST, EVT.USR_IFO, EVT.USR_NEW, EVT.CURFEW]:
                     continue
                 if movement['movements'][0]['direction'] != 0:
                     return INOUT_STATUS[movement['movements'][0]['direction']]
