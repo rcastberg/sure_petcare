@@ -180,6 +180,24 @@ class SurePetFlap(object):
         self.tcache[url]['ts'] = datetime.now()
         return self.tcache[url]['LastData']
 
+    def create_header(self, ETag=None):
+        headers={
+            'Connection': 'keep-alive',
+            'Accept': 'application/json, text/plain, */*',
+            'Origin': 'https://surepetcare.io',
+            'User-Agent': API_USER_AGENT,
+            'Referer': 'https://surepetcare.io/',
+            'Accept-Encoding': 'gzip, deflate',
+            'Accept-Language': 'en-US,en-GB;q=0.9',
+            'X-Requested-With': 'com.sureflap.surepetcare',
+        }
+
+        if self.pcache['AuthToken'] is not None:
+            headers['Authorization']='Bearer ' + self.pcache['AuthToken']
+        if ETag is not None:
+            headers['If-None-Match'] = ETag
+        return headers
+
     def api_get( self, url, *args, **kwargs ):
         r = self.s.get( url, *args, **kwargs )
         if r.status_code == 401:
@@ -284,24 +302,6 @@ class SurePetFlap(object):
                 if movement['movements'][0]['direction'] != 0:
                     return STATUS_INOUT[movement['movements'][0]['direction']]
             return 'Unknown'
-
-    def create_header(self, ETag=None):
-        headers={
-            'Connection': 'keep-alive',
-            'Accept': 'application/json, text/plain, */*',
-            'Origin': 'https://surepetcare.io',
-            'User-Agent': API_USER_AGENT,
-            'Referer': 'https://surepetcare.io/',
-            'Accept-Encoding': 'gzip, deflate',
-            'Accept-Language': 'en-US,en-GB;q=0.9',
-            'X-Requested-With': 'com.sureflap.surepetcare',
-        }
-
-        if self.pcache['AuthToken'] is not None:
-            headers['Authorization']='Bearer ' + self.pcache['AuthToken']
-        if ETag is not None:
-            headers['If-None-Match'] = ETag
-        return headers
 
     def debug_print(self, string):
         if self.debug:
