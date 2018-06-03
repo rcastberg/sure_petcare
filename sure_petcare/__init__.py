@@ -165,7 +165,7 @@ class SurePetFlap(object):
             if time_since_last.total_seconds() < refresh_interval: #Refresh every hour at least
                 headers = self.create_header(ETag=self.tcache[url]['ETag'])
             else:
-                self.debug_print('Refreshing data')
+                self.debug_print('Using cached data for %s' % (url,))
         if headers is None:
             self.tcache[url]={}
             headers = self.create_header()
