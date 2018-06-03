@@ -23,17 +23,26 @@ API_USER_AGENT = 'Mozilla/5.0 (Linux; Android 7.0; SM-G930F Build/NRD90M; wv) Ap
 class SurePetFlap(object):
     """Class to take care of cummunication with SurePet's products"""
 
-    def __init__(self, email_address=None, password=None, device_id=None):
+    def __init__(self, email_address=None, password=None, device_id=None, pcache=None, debug=False):
         if email_address ==None or password==None or device_id==None:
             raise ValueError('Please provide, email, password and device id')
-        self.debug=True
+        self.debug=debug
         self.tcache={} # transient object cache
-        self.pets={}
         self.s = requests.session()
+        if debug:
+            self.s.hooks['response'].append( self._log_req )
         self.email_address = email_address
         self.password = password
-        self.AuthToken = None
         self.device_id = device_id
+        if pcache is None: # Persistent object cache
+            self.pcache = {'AuthToken': None,
+                           'HouseholdID': None,
+                           'router_id': None,
+                           'flap_id': None,
+                           'pets': None,
+                           }
+        else:
+            self.pcache = pcache
         self.update()
 
 
@@ -48,13 +57,21 @@ class SurePetFlap(object):
         self.get_pet_info()
         self.update_pet_status()
         self.flap_status = self.get_flap_status()
-        self.router_status = self.get_router_status()
+        #self.router_status = self.get_router_status()
+        # XXX For now, router status contains little of interest and isn't worth
+        #     the API call.
         self.household = self.get_housedata()
         self.curfew_status = [ i for i in self.household['data'] if i['type'] == 20 ]
         self.curfew_lock_info=self.curfew_lock_infocalc()
 
-    def update_authtoken(self):
+    def _log_req( self, r, *args, **kwargs ):
+        """Debugging aid: print network requests"""
+        print( 'requests: %s %s -> %s' % (r.request.method, r.request.url, r.status_code,) )
+
+    def update_authtoken(self, force = False):
         """Get authentication token from servers"""
+        if self.pcache['AuthToken'] is not None and not force:
+            return
         data = {"email_address": self.email_address,
                 "password": self.password,
                 "device_id": self.device_id,
@@ -62,53 +79,61 @@ class SurePetFlap(object):
         headers=self.create_header()
         response = self.s.post(URL_AUTH, headers=headers, json=data)
         response_data = response.json()
-        self.AuthToken = response_data['data']['token']
+        self.pcache['AuthToken'] = response_data['data']['token']
 
-    def update_household_id(self):
+    def update_household_id(self, force = False):
+        if self.pcache['HouseholdID'] is not None and not force:
+            return
         params = (
             ('with[]', ['household', 'pet', 'users', 'timezone']),
         )
         headers=self.create_header()
         response_household = self.s.get(URL_HOUSEHOLD, headers=headers, params=params)
         response_household = response_household.json()
-        self.HouseholdID = str(response_household['data'][0]['id'])
+        self.pcache['HouseholdID'] = response_household['data'][0]['id']
 
-    def get_device_ids(self):
+    def get_device_ids(self, force = False):
+        if self.pcache['router_id'] is not None and self.pcache['flap_id'] is not None and not force:
+            return
         params = (
             ('with[]', 'children'),
         )
-        url = '%s/%s/device' % (URL_HOUSEHOLD, self.HouseholdID,)
+        url = '%s/%s/device' % (URL_HOUSEHOLD, self.pcache['HouseholdID'],)
         response_children = self.get_data(url, params)
         for device in response_children['data']:
             if device['product_id'] == 3: # Catflap
-                self.catflap_id = device['id']
+                self.pcache['flap_id'] = device['id']
             elif device['product_id'] == 1: # Router
-                self.router_id = device['id']
+                self.pcache['router_id'] = device['id']
 
-    def get_pet_info(self):
+    def get_pet_info(self, force = False):
+        if self.pcache['pets'] is not None and not force:
+            return
         params = (
             ('with[]', ['photo', 'tag']),
         )
-        url = '%s/%s/pet' % (URL_HOUSEHOLD, self.HouseholdID,)
+        url = '%s/%s/pet' % (URL_HOUSEHOLD, self.pcache['HouseholdID'],)
         response_pets = self.get_data(url, params)
+        self.pcache['pets'] = {}
         for pet in response_pets['data']:
             pet_id = pet['id']
-            self.pets[pet_id]={}
-            self.pets[pet_id]['tag_id']=pet['tag_id']
-            self.pets[pet_id]['name']=pet['name']
-            self.pets[pet_id]['household']=pet['household_id']
+            self.pcache['pets'][pet_id] = {
+                'tag_id': pet['tag_id'],
+                'name': pet['name'],
+                'household': pet['household_id'],
+                }
             if 'photo' in pet:
-                self.pets[pet_id]['photo']=pet['photo']['location']
+                self.pcache['pets'][pet_id]['photo']=pet['photo']['location']
             else:
-                self.pets[pet_id]['photo']=None
+                self.pcache['pets'][pet_id]['photo']=None
 
     def get_flap_status(self):
-        url = '%s/%s/status' % (URL_DEV, self.catflap_id,)
+        url = '%s/%s/status' % (URL_DEV, self.pcache['flap_id'],)
         response = self.get_data(url)
         return response
 
     def get_router_status(self):
-        url = '%s/%s/status' % (URL_DEV, self.router_id,)
+        url = '%s/%s/status' % (URL_DEV, self.pcache['router_id'],)
         response = self.get_data(url)
         return response
 
@@ -116,7 +141,7 @@ class SurePetFlap(object):
         params = (
             ('type', '0,3,6,7,12,13,14,17,19,20'),
         )
-        url = '%s/household/%s' % (URL_TIMELINE, self.HouseholdID,)
+        url = '%s/household/%s' % (URL_TIMELINE, self.pcache['HouseholdID'],)
         response_housedata = self.get_data(url, params)
         return response_housedata
 
@@ -125,8 +150,8 @@ class SurePetFlap(object):
             ('type', '0,3,6,7,12,13,14,17,19,20'),
         )
         petdata={}
-        for pet_id in self.pets:
-            url = '%s/pet/%s/%s' % (URL_TIMELINE, pet_id, self.HouseholdID,)
+        for pet_id in self.pcache['pets']:
+            url = '%s/pet/%s/%s' % (URL_TIMELINE, pet_id, self.pcache['HouseholdID'],)
             response = self.get_data(url, params=params)
             petdata[pet_id] = response
         self.petstatus=petdata
@@ -219,7 +244,7 @@ class SurePetFlap(object):
 
     def find_id(self, name):
         for petid in pets:
-            if self.pets[petid]['name'] == name:
+            if self.pcache['pets'][petid]['name'] == name:
                 return petid
 
     def get_current_status(self, petid=None, name=None):
@@ -258,8 +283,8 @@ class SurePetFlap(object):
             'X-Requested-With': 'com.sureflap.surepetcare',
         }
 
-        if self.AuthToken is not None:
-            headers['Authorization']='Bearer ' + self.AuthToken
+        if self.pcache['AuthToken'] is not None:
+            headers['Authorization']='Bearer ' + self.pcache['AuthToken']
         if ETag is not None:
             headers['If-None-Match'] = ETag
         return headers
