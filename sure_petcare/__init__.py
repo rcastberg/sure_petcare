@@ -9,10 +9,20 @@ import requests
 from datetime import datetime, timedelta
 import os
 
+DIRECTION ={0:'Looked through',1:'Entered House',2:'Left House'}
+INOUT_STATUS = {1 : 'Inside', 2 : 'Outside'}
+
+# REST API endpoints (no trailing slash)
+URL_AUTH = 'https://app.api.surehub.io/api/auth/login'
+URL_HOUSEHOLD = 'https://app.api.surehub.io/api/household'
+URL_DEV = 'https://app.api.surehub.io/api/device'
+URL_TIMELINE = 'https://app.api.surehub.io/api/timeline'
+
+API_USER_AGENT = 'Mozilla/5.0 (Linux; Android 7.0; SM-G930F Build/NRD90M; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/64.0.3282.137 Mobile Safari/537.36'
+
 class SurePetFlap(object):
     """Class to take care of cummunication with SurePet's products"""
-    direction ={0:'Looked through',1:'Entered House',2:'Left House'}
-    status = {1 : 'Inside', 2 : 'Outside'}
+
     def __init__(self, email_address=None, password=None, device_id=None):
         if email_address ==None or password==None or device_id==None:
             raise ValueError('Please provide, email, password and device id')
@@ -22,9 +32,9 @@ class SurePetFlap(object):
         self.s = requests.session()
         self.email_address = email_address
         self.password = password
-        self.device_id = device_id        
+        self.device_id = device_id
         self.update()
-        
+
     def update(self):
         self.update_authtoken()
         self.update_household_id()
@@ -36,12 +46,13 @@ class SurePetFlap(object):
         self.household = self.get_housedata()
         self.curfew_status = [ i for i in self.household['data'] if i['type'] == 20 ]
         self.curfew_lock_info=self.curfew_lock_infocalc()
-        
+
     def curfew_lock_infocalc(self):
         if len(self.curfew_status) > 0:
             return json.loads(self.curfew_status[0]['data'])['locked']
         else:
             return 'Unknown' #new accounts might not be populated with the relevent information
+
     def locked(self):
         lock = self.flap_status['data']['locking']['mode']
         if lock == 0 :
@@ -53,6 +64,7 @@ class SurePetFlap(object):
                 return True
             else:
                 return False
+
     def lock_mode(self):
         lock = self.flap_status['data']['locking']['mode']
         if lock == 0:
@@ -69,6 +81,7 @@ class SurePetFlap(object):
                 return 'Locked with curfew'
             else:
                 return 'Unlocked with curfew'
+
     def print_timeline(self, petid, entry_type=None):
         """Print timeline for a particular pet, specify entry_type to only get one direction"""
         petdata = self.petstatus[petid]
@@ -82,47 +95,48 @@ class SurePetFlap(object):
                 if entry_type is not None:
                     if movement['movements'][0]['tag_id'] == petid:
                         if movement['movements'][0]['direction'] == entry_type:
-                            print(movement['movements'][0]['created_at'], self.direction[movement['movements'][0]['direction']])
+                            print(movement['movements'][0]['created_at'], DIRECTION[movement['movements'][0]['direction']])
                 else:
                     if movement['movements'][0]['tag_id'] == petid:
-                        print(movement['movements'][0]['created_at'], self.direction[movement['movements'][0]['direction']])
+                        print(movement['movements'][0]['created_at'], DIRECTION[movement['movements'][0]['direction']])
             except Exception as e:
                 print(e)
-                print(i)
+
     def update_authtoken(self):
         """Get authentication token from servers"""
         data = '{"email_address":"' + self.email_address + '","password":"' + self.password + \
                 '","device_id":"' + self.device_id + '"}'
-        url = 'https://app.api.surehub.io/api/auth/login'
         headers=self.create_header(Content_length=88)
-        response = self.s.post(url, headers=headers, data=data)
+        response = self.s.post(URL_AUTH, headers=headers, data=data)
         response_data = json.loads(response.content.decode('utf-8'))
         self.AuthToken = response_data['data']['token']
+
     def update_household_id(self):
         params = (
             ('with[]', ['household', 'pet', 'users', 'timezone']),
         )
-        url = 'https://app.api.surehub.io/api/household'
         headers=self.create_header(Authorization=self.AuthToken)
-        response_household = self.s.get(url, headers=headers, params=params)
+        response_household = self.s.get(URL_HOUSEHOLD, headers=headers, params=params)
         response_household = json.loads(response_household.content.decode('utf-8'))
         self.HouseholdID = str(response_household['data'][0]['id'])
+
     def get_device_ids(self):
         params = (
             ('with[]', 'children'),
         )
-        url = 'https://app.api.surehub.io/api/household/' + self.HouseholdID +'/device'
+        url = '%s/%s/device' % (URL_HOUSEHOLD, self.HouseholdID,)
         response_children = self.get_data(url, params)
         for device in response_children['data']:
             if device['product_id'] == 3: # Catflap
                 self.catflap_id = device['id']
             elif device['product_id'] == 1: # Router
                 self.router_id = device['id']
+
     def get_pet_info(self):
         params = (
             ('with[]', ['photo', 'tag']),
         )
-        url = 'https://app.api.surehub.io/api/household/' + self.HouseholdID + '/pet'
+        url = '%s/%s/pet' % (URL_HOUSEHOLD, self.HouseholdID,)
         response_pets = self.get_data(url, params)
         for pet in response_pets['data']:
             pet_id = pet['id']
@@ -134,31 +148,36 @@ class SurePetFlap(object):
                 self.pets[pet_id]['photo']=pet['photo']['location']
             else:
                 self.pets[pet_id]['photo']=None
+
     def get_flap_status(self):
-        url ='https://app.api.surehub.io/api/device/' + str(self.catflap_id) + '/status'
+        url = '%s/%s/status' % (URL_DEV, self.catflap_id,)
         response = self.get_data(url)
         return response
+
     def get_router_status(self):
-        url = 'https://app.api.surehub.io/api/device/' + str(self.router_id) + '/status'
+        url = '%s/%s/status' % (URL_DEV, self.router_id,)
         response = self.get_data(url)
         return response
+
     def get_housedata(self):
         params = (
             ('type', '0,3,6,7,12,13,14,17,19,20'),
         )
-        url = 'https://app.api.surehub.io/api/timeline/household/' + str(self.HouseholdID)
+        url = '%s/household/%s' % (URL_TIMELINE, self.HouseholdID,)
         response_housedata = self.get_data(url, params)
         return response_housedata
+
     def update_pet_status(self):
         params = (
             ('type', '0,3,6,7,12,13,14,17,19,20'),
         )
         petdata={}
         for pet_id in self.pets:
-            url = 'https://app.api.surehub.io/api/timeline/pet/' + str(pet_id) + '/' + self.HouseholdID
+            url = '%s/pet/%s/%s' % (URL_TIMELINE, pet_id, self.HouseholdID,)
             response = self.get_data(url, params=params)
             petdata[pet_id] = response
         self.petstatus=petdata
+
     def get_data(self, url, params=None, refresh_interval=3600):
         headers = None
         if url in self.Status:
@@ -167,7 +186,7 @@ class SurePetFlap(object):
                 headers = self.create_header(Authorization=self.AuthToken, ETag=self.Status[url]['ETag'])
             else:
                 self.debug_print('Refreshing data')
-        if headers == None:
+        if headers is None:
             self.Status[url]={}
             headers = self.create_header(Authorization=self.AuthToken)
         response = self.s.get(url, headers=headers, params=params)
@@ -178,10 +197,12 @@ class SurePetFlap(object):
         self.Status[url]['ETag'] = response.headers['ETag'][1:-1]
         self.Status[url]['ts'] = datetime.now()
         return self.Status[url]['LastData']
+
     def find_id(self, name):
         for petid in pets:
             if self.pets[petid]['name'] == name:
                 return petid
+
     def get_current_status(self, petid=None, name=None):
         if petid is None and name is None:
             raise ValueError('Please define petid or name')
@@ -199,14 +220,15 @@ class SurePetFlap(object):
                     #type 6 == Manual change of entry
                     continue
                 if movement['movements'][0]['direction'] != 0:
-                    return self.status[movement['movements'][0]['direction']]
+                    return STATUS_INOUT[movement['movements'][0]['direction']]
             return 'Unknown'
+
     def create_header(self, Content_length='0', Authorization=None, ETag=None):
         headers={'Host': 'app.api.surehub.io',
         'Connection': 'keep-alive',
         'Accept': 'application/json, text/plain, */*',
         'Origin': 'https://surepetcare.io',
-        'User-Agent': 'Mozilla/5.0 (Linux; Android 7.0; SM-G930F Build/NRD90M; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/64.0.3282.137 Mobile Safari/537.36',
+        'User-Agent': API_USER_AGENT,
         'Content-Type': 'application/json;charset=UTF-8',
         'Referer': 'https://surepetcare.io/',
         'Accept-Encoding': 'gzip, deflate',
@@ -218,9 +240,11 @@ class SurePetFlap(object):
         if ETag is not None:
             headers['If-None-Match'] = ETag
         return headers
+
     def debug_print(self, string):
         if self.debug:
             print(string)
+
 
 def getmac():
     mac = None
@@ -234,9 +258,10 @@ def getmac():
             print(e)
     return mac[:-1] #trim new line
 
+
 def gen_device_id():
     mac = getmac()
-    sum = 0 
+    sum = 0
     for i in mac:
         if i ==':' or i == '-':
             continue
