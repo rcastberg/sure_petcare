@@ -78,6 +78,8 @@ class SurePetFlap(object):
                 }
         headers=self.create_header()
         response = self.s.post(URL_AUTH, headers=headers, json=data)
+        if response.status_code == 401:
+            raise SPAPIAuthError()
         response_data = response.json()
         self.pcache['AuthToken'] = response_data['data']['token']
 
@@ -88,7 +90,7 @@ class SurePetFlap(object):
             ('with[]', ['household', 'pet', 'users', 'timezone']),
         )
         headers=self.create_header()
-        response_household = self.s.get(URL_HOUSEHOLD, headers=headers, params=params)
+        response_household = self.api_get(URL_HOUSEHOLD, headers=headers, params=params)
         response_household = response_household.json()
         self.pcache['HouseholdID'] = response_household['data'][0]['id']
 
@@ -167,7 +169,7 @@ class SurePetFlap(object):
         if headers is None:
             self.tcache[url]={}
             headers = self.create_header()
-        response = self.s.get(url, headers=headers, params=params)
+        response = self.api_get(url, headers=headers, params=params)
         if response.status_code in [304, 500, 502, 503,]:
             # Used cached data in event of (respectively), not modified, server
             # error, server overload and gateway timeout
@@ -177,6 +179,18 @@ class SurePetFlap(object):
         self.tcache[url]['ETag'] = response.headers['ETag'][1:-1]
         self.tcache[url]['ts'] = datetime.now()
         return self.tcache[url]['LastData']
+
+    def api_get( self, url, *args, **kwargs ):
+        r = self.s.get( url, *args, **kwargs )
+        if r.status_code == 401:
+            # Retry once
+            self.update_authtoken( force = True )
+            if 'headers' in kwargs and 'Authorization' in kwargs['headers']:
+                kwargs['headers']['Authorization']='Bearer ' + self.pcache['AuthToken']
+                r = self.s.get( url, *args, **kwargs )
+            else:
+                raise SPAPIException( 'Auth required but not present in header' )
+        return r
 
 
     #
@@ -293,6 +307,11 @@ class SurePetFlap(object):
         if self.debug:
             print(string)
 
+class SPAPIException( Exception ):
+    pass
+
+class SPAPIAuthError( SPAPIException ):
+    pass
 
 def getmac():
     mac = None
