@@ -35,6 +35,11 @@ class SurePetFlap(object):
         self.device_id = device_id
         self.update()
 
+
+    #
+    # All network-active API calls
+    #
+
     def update(self):
         self.update_authtoken()
         self.update_household_id()
@@ -46,65 +51,6 @@ class SurePetFlap(object):
         self.household = self.get_housedata()
         self.curfew_status = [ i for i in self.household['data'] if i['type'] == 20 ]
         self.curfew_lock_info=self.curfew_lock_infocalc()
-
-    def curfew_lock_infocalc(self):
-        if len(self.curfew_status) > 0:
-            return json.loads(self.curfew_status[0]['data'])['locked']
-        else:
-            return 'Unknown' #new accounts might not be populated with the relevent information
-
-    def locked(self):
-        lock = self.flap_status['data']['locking']['mode']
-        if lock == 0:
-            return False
-        if lock in [1, 2, 3]:
-            return True
-        if lock == 4:
-            if self.curfew_lock_info:
-                return True
-            else:
-                return False
-
-    def lock_mode(self):
-        lock = self.flap_status['data']['locking']['mode']
-        if lock == 0:
-            return 'Unlocked'
-        elif lock == 1:
-            return 'Keep pets in'
-        elif lock == 2:
-            return 'Keep pets out'
-        elif lock == 3:
-            return 'Locked'
-        elif lock == 4:
-            #We are in curfew mode, check log to see if in locked or unlocked.
-            if self.curfew_lock_info:
-                return 'Locked with curfew'
-            else:
-                return 'Unlocked with curfew'
-
-    def print_timeline(self, petid, entry_type=None):
-        """Print timeline for a particular pet, specify entry_type to only get one direction"""
-        petdata = self.petstatus[petid]
-        for movement in petdata['data']:
-            if movement['type'] in [20, 6, 12]:
-                #type 20 == curfew
-                #type 12 == User info/chage
-                #type 6 == Lock status change
-
-                # XXX Why exclude manual entries?  They affect status as
-                #     reflected by the website, so surely this API should
-                #     also.
-                continue
-            try:
-                if entry_type is not None:
-                    if movement['movements'][0]['tag_id'] == petid:
-                        if movement['movements'][0]['direction'] == entry_type:
-                            print(movement['movements'][0]['created_at'], DIRECTION[movement['movements'][0]['direction']])
-                else:
-                    if movement['movements'][0]['tag_id'] == petid:
-                        print(movement['movements'][0]['created_at'], DIRECTION[movement['movements'][0]['direction']])
-            except Exception as e:
-                print(e)
 
     def update_authtoken(self):
         """Get authentication token from servers"""
@@ -203,6 +149,70 @@ class SurePetFlap(object):
         self.Status[url]['ETag'] = response.headers['ETag'][1:-1]
         self.Status[url]['ts'] = datetime.now()
         return self.Status[url]['LastData']
+
+
+    #
+    # Introspection: return parsed and transformed data
+    #
+
+    def print_timeline(self, petid, entry_type=None):
+        """Print timeline for a particular pet, specify entry_type to only get one direction"""
+        petdata = self.petstatus[petid]
+        for movement in petdata['data']:
+            if movement['type'] in [20, 6, 12]:
+                #type 20 == curfew
+                #type 12 == User info/chage
+                #type 6 == Lock status change
+
+                # XXX Why exclude manual entries?  They affect status as
+                #     reflected by the website, so surely this API should
+                #     also.
+                continue
+            try:
+                if entry_type is not None:
+                    if movement['movements'][0]['tag_id'] == petid:
+                        if movement['movements'][0]['direction'] == entry_type:
+                            print(movement['movements'][0]['created_at'], DIRECTION[movement['movements'][0]['direction']])
+                else:
+                    if movement['movements'][0]['tag_id'] == petid:
+                        print(movement['movements'][0]['created_at'], DIRECTION[movement['movements'][0]['direction']])
+            except Exception as e:
+                print(e)
+
+    def curfew_lock_infocalc(self):
+        if len(self.curfew_status) > 0:
+            return json.loads(self.curfew_status[0]['data'])['locked']
+        else:
+            return 'Unknown' #new accounts might not be populated with the relevent information
+
+    def locked(self):
+        lock = self.flap_status['data']['locking']['mode']
+        if lock == 0:
+            return False
+        if lock in [1, 2, 3]:
+            return True
+        if lock == 4:
+            if self.curfew_lock_info:
+                return True
+            else:
+                return False
+
+    def lock_mode(self):
+        lock = self.flap_status['data']['locking']['mode']
+        if lock == 0:
+            return 'Unlocked'
+        elif lock == 1:
+            return 'Keep pets in'
+        elif lock == 2:
+            return 'Keep pets out'
+        elif lock == 3:
+            return 'Locked'
+        elif lock == 4:
+            #We are in curfew mode, check log to see if in locked or unlocked.
+            if self.curfew_lock_info:
+                return 'Locked with curfew'
+            else:
+                return 'Unlocked with curfew'
 
     def find_id(self, name):
         for petid in pets:
