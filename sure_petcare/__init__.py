@@ -3,7 +3,6 @@
 Access the sure petcare access information
 """
 
-import logging
 import json
 import requests
 from datetime import datetime, timedelta
@@ -20,8 +19,14 @@ URL_TIMELINE = 'https://app.api.surehub.io/api/timeline'
 
 API_USER_AGENT = 'Mozilla/5.0 (Linux; Android 7.0; SM-G930F Build/NRD90M; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/64.0.3282.137 Mobile Safari/537.36'
 
-class SurePetFlap(object):
-    """Class to take care of cummunication with SurePet's products"""
+
+class SurePetFlapNetwork(object):
+    """Class to take care of network communication with SurePet's products.
+
+    Unless you want to parse data from Sure directly, instantiate SurePetFlap()
+    rather than this class directly.  The constructor arguments are the same as
+    below.
+    """
 
     def __init__(self, email_address=None, password=None, device_id=None, pcache=None, tcache=None, debug=False):
         """`email_address` and `password` are self explanatory and are the only
@@ -69,11 +74,6 @@ class SurePetFlap(object):
             self.tcache = tcache
 
         self.update()
-
-
-    #
-    # All network-active API calls
-    #
 
     def update(self):
         self.update_authtoken()
@@ -235,10 +235,15 @@ class SurePetFlap(object):
                 raise SPAPIException( 'Auth required but not present in header' )
         return r
 
+    def debug_print(self, string):
+        if self.debug:
+            print(string)
 
-    #
-    # Introspection: return parsed and transformed data
-    #
+
+class SurePetFlapMixin( object ):
+    """A mixin that implements introspection of data collected by
+    SurePetFlapNetwork.
+    """
 
     def print_timeline(self, petid, entry_type=None):
         """Print timeline for a particular pet, specify entry_type to only get one direction"""
@@ -300,7 +305,7 @@ class SurePetFlap(object):
                 return 'Unlocked with curfew'
 
     def find_id(self, name):
-        for petid in pets:
+        for petid in self.pcache['pets']:
             if self.pcache['pets'][petid]['name'] == name:
                 return petid
 
@@ -325,18 +330,25 @@ class SurePetFlap(object):
                     #     also.
                     continue
                 if movement['movements'][0]['direction'] != 0:
-                    return STATUS_INOUT[movement['movements'][0]['direction']]
+                    return INOUT_STATUS[movement['movements'][0]['direction']]
             return 'Unknown'
 
-    def debug_print(self, string):
-        if self.debug:
-            print(string)
+
+class SurePetFlap(SurePetFlapMixin, SurePetFlapNetwork):
+    """Class to take care of network communication with SurePet's products.
+
+    See docstring for parent classes on how to use.
+    """
+    pass
+
 
 class SPAPIException( Exception ):
     pass
 
+
 class SPAPIAuthError( SPAPIException ):
     pass
+
 
 def getmac():
     mac = None
