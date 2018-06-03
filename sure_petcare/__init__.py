@@ -55,12 +55,12 @@ class SurePetFlap(object):
 
     def locked(self):
         lock = self.flap_status['data']['locking']['mode']
-        if lock == 0 :
+        if lock == 0:
             return False
-        if lock == 1 or lock == 2 or lock ==3 :
+        if lock in [1, 2, 3]:
             return True
-        if lock == 4 :
-            if self.curfew_lock_info :
+        if lock == 4:
+            if self.curfew_lock_info:
                 return True
             else:
                 return False
@@ -77,7 +77,7 @@ class SurePetFlap(object):
             return 'Locked'
         elif lock == 4:
             #We are in curfew mode, check log to see if in locked or unlocked.
-            if self.curfew_lock_info :
+            if self.curfew_lock_info:
                 return 'Locked with curfew'
             else:
                 return 'Unlocked with curfew'
@@ -86,10 +86,14 @@ class SurePetFlap(object):
         """Print timeline for a particular pet, specify entry_type to only get one direction"""
         petdata = self.petstatus[petid]
         for movement in petdata['data']:
-            if movement['type'] == 20 or movement['type'] == 6  or movement['type'] == 12:
+            if movement['type'] in [20, 6, 12]:
                 #type 20 == curfew
                 #type 12 == User info/chage
                 #type 6 == Lock status change
+
+                # XXX Why exclude manual entries?  They affect status as
+                #     reflected by the website, so surely this API should
+                #     also.
                 continue
             try:
                 if entry_type is not None:
@@ -110,16 +114,16 @@ class SurePetFlap(object):
                 }
         headers=self.create_header()
         response = self.s.post(URL_AUTH, headers=headers, json=data)
-        response_data = json.loads(response.content.decode('utf-8'))
+        response_data = response.json()
         self.AuthToken = response_data['data']['token']
 
     def update_household_id(self):
         params = (
             ('with[]', ['household', 'pet', 'users', 'timezone']),
         )
-        headers=self.create_header(Authorization=self.AuthToken)
+        headers=self.create_header()
         response_household = self.s.get(URL_HOUSEHOLD, headers=headers, params=params)
-        response_household = json.loads(response_household.content.decode('utf-8'))
+        response_household = response_household.json()
         self.HouseholdID = str(response_household['data'][0]['id'])
 
     def get_device_ids(self):
@@ -185,12 +189,12 @@ class SurePetFlap(object):
         if url in self.Status:
             time_since_last =  datetime.now() - self.Status[url]['ts']
             if time_since_last.total_seconds() < refresh_interval: #Refresh every hour at least
-                headers = self.create_header(Authorization=self.AuthToken, ETag=self.Status[url]['ETag'])
+                headers = self.create_header(ETag=self.Status[url]['ETag'])
             else:
                 self.debug_print('Refreshing data')
         if headers is None:
             self.Status[url]={}
-            headers = self.create_header(Authorization=self.AuthToken)
+            headers = self.create_header()
         response = self.s.get(url, headers=headers, params=params)
         if response.status_code == 304:
             #print('Got a 304')
@@ -216,16 +220,20 @@ class SurePetFlap(object):
         else:
             #Get last update
             for movement in self.petstatus[petid]['data']:
-                if movement['type'] == 20 or movement['type'] == 6 or movement['type'] == 12:
+                if movement['type'] in [20, 6, 12]:
                     #type 20 == curfew
                     #type 7 == Cat entry
                     #type 6 == Manual change of entry
+
+                    # XXX Why exclude manual entries?  They affect status as
+                    #     reflected by the website, so surely this API should
+                    #     also.
                     continue
                 if movement['movements'][0]['direction'] != 0:
                     return STATUS_INOUT[movement['movements'][0]['direction']]
             return 'Unknown'
 
-    def create_header(self, Authorization=None, ETag=None):
+    def create_header(self, ETag=None):
         headers={
             'Connection': 'keep-alive',
             'Accept': 'application/json, text/plain, */*',
@@ -237,8 +245,8 @@ class SurePetFlap(object):
             'X-Requested-With': 'com.sureflap.surepetcare',
         }
 
-        if Authorization is not None:
-            headers['Authorization']='Bearer ' + Authorization
+        if self.AuthToken is not None:
+            headers['Authorization']='Bearer ' + self.AuthToken
         if ETag is not None:
             headers['If-None-Match'] = ETag
         return headers
@@ -252,27 +260,22 @@ def getmac():
     mac = None
     folders = os.listdir('/sys/class/net/')
     for interface in folders:
-        if interface =='lo':
+        if interface == 'lo':
             continue
         try:
             mac = open('/sys/class/net/'+interface+'/address').readline()
+            # XXX What happens when multiple interfaces are found?  Might
+            #     be better to break here to stop at the first MAC which,
+            #     on most/many systems, will be the first wired Ethernet
+            #     interface.
+            # break
         except Exception as e:
-            print(e)
-    return mac[:-1] #trim new line
+            return None
+    if mac is not None:
+        return mac.strip() #trim new line
 
 
 def gen_device_id():
-    mac = getmac()
-    sum = 0
-    for i in mac:
-        if i ==':' or i == '-':
-            continue
-        if ord(i) >= 48 and  ord(i) <= 58:
-            sum +=int(i)
-        elif ord(i) >= 97 and ord(i) <= 102:
-            sum += 10 + ord(i)-97
-        elif ord(i) >= 65 and ord(i) <= 80:
-            sum += 10 + ord(i)-65
-        sum = sum << 4
-    sum = str(sum)[0:10]
-    return sum
+    mac_dec = int( getmac().replace( ':', '').replace( '-', '' ), 16 )
+    # Use low order bits because upper two octets are low entropy
+    return str(mac_dec[-10:])
