@@ -27,7 +27,7 @@ class SurePetFlap(object):
         if email_address ==None or password==None or device_id==None:
             raise ValueError('Please provide, email, password and device id')
         self.debug=True
-        self.Status={}
+        self.tcache={} # transient object cache
         self.pets={}
         self.s = requests.session()
         self.email_address = email_address
@@ -132,23 +132,23 @@ class SurePetFlap(object):
 
     def get_data(self, url, params=None, refresh_interval=3600):
         headers = None
-        if url in self.Status:
-            time_since_last =  datetime.now() - self.Status[url]['ts']
+        if url in self.tcache:
+            time_since_last =  datetime.now() - self.tcache[url]['ts']
             if time_since_last.total_seconds() < refresh_interval: #Refresh every hour at least
-                headers = self.create_header(ETag=self.Status[url]['ETag'])
+                headers = self.create_header(ETag=self.tcache[url]['ETag'])
             else:
                 self.debug_print('Refreshing data')
         if headers is None:
-            self.Status[url]={}
+            self.tcache[url]={}
             headers = self.create_header()
         response = self.s.get(url, headers=headers, params=params)
         if response.status_code == 304:
             #print('Got a 304')
-            return self.Status[url]['LastData']
-        self.Status[url]['LastData']  = json.loads(response.content.decode('utf-8'))
-        self.Status[url]['ETag'] = response.headers['ETag'][1:-1]
-        self.Status[url]['ts'] = datetime.now()
-        return self.Status[url]['LastData']
+            return self.tcache[url]['LastData']
+        self.tcache[url]['LastData'] = response.json()
+        self.tcache[url]['ETag'] = response.headers['ETag'][1:-1]
+        self.tcache[url]['ts'] = datetime.now()
+        return self.tcache[url]['LastData']
 
 
     #
