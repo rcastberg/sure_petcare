@@ -23,18 +23,35 @@ API_USER_AGENT = 'Mozilla/5.0 (Linux; Android 7.0; SM-G930F Build/NRD90M; wv) Ap
 class SurePetFlap(object):
     """Class to take care of cummunication with SurePet's products"""
 
-    def __init__(self, email_address=None, password=None, device_id=None, pcache=None, debug=False):
-        if email_address ==None or password==None or device_id==None:
+    def __init__(self, email_address=None, password=None, device_id=None, pcache=None, tcache=None, debug=False):
+        """`email_address` and `password` are self explanatory and are the only
+        mandatory arguments.
+
+        `device_id` is the ID of *this* client.  If none supplied, a plausible,
+        unique-ish default is supplied.
+
+        pcache and tcache are the persistent and transient object data caches
+        preserved from a previous instance with which to initialise this
+        instance.  While both are optional, you *should* always preserve the
+        persistent cache if you can, and also the transient cache if your
+        process itself is not long-lived.
+        """
+        if email_address is None or password is None:
             raise ValueError('Please provide, email, password and device id')
         self.debug=debug
-        self.tcache={} # transient object cache
         self.s = requests.session()
         if debug:
             self.s.hooks['response'].append( self._log_req )
         self.email_address = email_address
         self.password = password
-        self.device_id = device_id
-        if pcache is None: # Persistent object cache
+        if device_id is None:
+            self.device_id = gen_device_id()
+        else:
+            self.device_id = device_id
+        # The persistent object cache is for data that rarely or never change.
+        # If at all possible, this *should* be preserved and passed to future
+        # instances of this class.
+        if pcache is None:
             self.pcache = {'AuthToken': None,
                            'HouseholdID': None,
                            'router_id': None,
@@ -43,6 +60,14 @@ class SurePetFlap(object):
                            }
         else:
             self.pcache = pcache
+        # The transient object cache is for data that change over the short
+        # term.  You should preserve this, too, if your process is not
+        # long-lived.
+        if tcache is None:
+            self.tcache = {}
+        else:
+            self.tcache = tcache
+
         self.update()
 
 
