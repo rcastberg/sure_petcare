@@ -104,10 +104,12 @@ class SurePetFlap(object):
 
     def update_authtoken(self):
         """Get authentication token from servers"""
-        data = '{"email_address":"' + self.email_address + '","password":"' + self.password + \
-                '","device_id":"' + self.device_id + '"}'
-        headers=self.create_header(Content_length=88)
-        response = self.s.post(URL_AUTH, headers=headers, data=data)
+        data = {"email_address": self.email_address,
+                "password": self.password,
+                "device_id": self.device_id,
+                }
+        headers=self.create_header()
+        response = self.s.post(URL_AUTH, headers=headers, json=data)
         response_data = json.loads(response.content.decode('utf-8'))
         self.AuthToken = response_data['data']['token']
 
@@ -223,18 +225,18 @@ class SurePetFlap(object):
                     return STATUS_INOUT[movement['movements'][0]['direction']]
             return 'Unknown'
 
-    def create_header(self, Content_length='0', Authorization=None, ETag=None):
-        headers={'Host': 'app.api.surehub.io',
-        'Connection': 'keep-alive',
-        'Accept': 'application/json, text/plain, */*',
-        'Origin': 'https://surepetcare.io',
-        'User-Agent': API_USER_AGENT,
-        'Content-Type': 'application/json;charset=UTF-8',
-        'Referer': 'https://surepetcare.io/',
-        'Accept-Encoding': 'gzip, deflate',
-        'Accept-Language': 'en-US,en-GB;q=0.9',
-        'X-Requested-With': 'com.sureflap.surepetcare'}
-        headers['Content-Length']=str(Content_length)
+    def create_header(self, Authorization=None, ETag=None):
+        headers={
+            'Connection': 'keep-alive',
+            'Accept': 'application/json, text/plain, */*',
+            'Origin': 'https://surepetcare.io',
+            'User-Agent': API_USER_AGENT,
+            'Referer': 'https://surepetcare.io/',
+            'Accept-Encoding': 'gzip, deflate',
+            'Accept-Language': 'en-US,en-GB;q=0.9',
+            'X-Requested-With': 'com.sureflap.surepetcare',
+        }
+
         if Authorization is not None:
             headers['Authorization']='Bearer ' + Authorization
         if ETag is not None:
