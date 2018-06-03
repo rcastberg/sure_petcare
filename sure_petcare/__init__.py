@@ -32,6 +32,7 @@ class SurePetFlap(object):
         self.s = requests.session()
         self.email_address = email_address
         self.password = password
+        self.AuthToken = None
         self.device_id = device_id
         self.update()
 
@@ -142,7 +143,9 @@ class SurePetFlap(object):
             self.tcache[url]={}
             headers = self.create_header()
         response = self.s.get(url, headers=headers, params=params)
-        if response.status_code == 304:
+        if response.status_code in [304, 500, 502, 503,]:
+            # Used cached data in event of (respectively), not modified, server
+            # error, server overload and gateway timeout
             #print('Got a 304')
             return self.tcache[url]['LastData']
         self.tcache[url]['LastData'] = response.json()
@@ -288,4 +291,4 @@ def getmac():
 def gen_device_id():
     mac_dec = int( getmac().replace( ':', '').replace( '-', '' ), 16 )
     # Use low order bits because upper two octets are low entropy
-    return str(mac_dec[-10:])
+    return str(mac_dec)[-10:]
