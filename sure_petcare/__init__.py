@@ -305,7 +305,9 @@ class SurePetFlapMixin( object ):
             return 'Locked'
         elif lock == 4:
             #We are in curfew mode, check log to see if in locked or unlocked.
-            if self.curfew_lock_info:
+            if self.curfew_lock_info == 'Unknown':
+                return 'Curfew enabled but state unknown'
+            elif self.curfew_lock_info:
                 return 'Locked with curfew'
             else:
                 return 'Unlocked with curfew'
