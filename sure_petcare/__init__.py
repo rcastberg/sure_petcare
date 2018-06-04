@@ -260,17 +260,22 @@ class SurePetFlapMixin( object ):
 
     def print_timeline(self, petid, entry_type=None):
         """Print timeline for a particular pet, specify entry_type to only get one direction"""
+        try:
+            tag_id = self.pcache['pets'][petid]['tag_id']
+        except KeyError as e:
+            raise SPAPIUnknownPet( str(e) )
         petdata = self.petstatus[petid]
+
         for movement in petdata['data']:
             if movement['type'] in [EVT.LOCK_ST, EVT.USR_IFO, EVT.USR_NEW, EVT.CURFEW]:
                 continue
             try:
                 if entry_type is not None:
-                    if movement['movements'][0]['tag_id'] == petid:
+                    if movement['movements'][0]['tag_id'] == tag_id:
                         if movement['movements'][0]['direction'] == entry_type:
                             print(movement['movements'][0]['created_at'], DIRECTION[movement['movements'][0]['direction']])
                 else:
-                    if movement['movements'][0]['tag_id'] == petid:
+                    if movement['movements'][0]['tag_id'] == tag_id:
                         print(movement['movements'][0]['created_at'], DIRECTION[movement['movements'][0]['direction']])
             except Exception as e:
                 print(e)
@@ -348,6 +353,10 @@ class SPAPIException( Exception ):
 
 
 class SPAPIAuthError( SPAPIException ):
+    pass
+
+
+class SPAPIUnknownPet( SPAPIException ):
     pass
 
 
