@@ -326,12 +326,15 @@ class SurePetFlapNetwork(object):
         headers = None
         if url in self.tcache:
             time_since_last =  datetime.now() - self.tcache[url]['ts']
-            if time_since_last.total_seconds() < refresh_interval: #Refresh every hour at least
+            if time_since_last.total_seconds() < refresh_interval:
+                # Use cached data but check freshness with ETag
                 headers = self._create_header(ETag=self.tcache[url]['ETag'])
             else:
-                self._debug_print('Using cached data for %s' % (url,))
+                # Ignore cached data and force refresh
+                self._debug_print('Forcing refresh of data for %s' % (url,))
+        else:
+            self.tcache[url]={}
         if headers is None:
-            self.tcache[url]={}  # XXX shouldn't do this in case of 5xx errors
             headers = self._create_header()
         response = self._api_get(url, headers=headers, params=params)
         if response.status_code in [304, 500, 502, 503,]:
