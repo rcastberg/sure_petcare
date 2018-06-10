@@ -71,10 +71,8 @@ class SurePetFlapNetwork(object):
         # instances of this class.
         if pcache is None:
             self.pcache = {'AuthToken': None,
-                           'HouseholdID': None,
-                           'router_id': None,
-                           'flap_id': None,
-                           'pets': None,
+                           'households': None,
+                           'default_household': None,
                            }
         else:
             self.pcache = pcache
@@ -85,27 +83,81 @@ class SurePetFlapNetwork(object):
             self.tcache = {}
         else:
             self.tcache = tcache
+        self.flap_status = {} # indexed by household
+        self.router_status = {} # indexed by household
+        self.pet_status = {} # indexed by household
+        self.house_timeline = {} # indexed by household
+        self.curfew_lock_info = {} # indexed by household
+
+    @property
+    def default_household( self ):
+        """
+        Get the default house ID from the persistent cache.
+        """
+        return self.pcache['default_household']
+    @default_household.setter
+    def default_household( self, id ):
+        """
+        Set the default household in the persistent cache.
+        """
+        self.pcache['default_household'] = id
+
+    def get_default_router( self, hid ):
+        """
+        Set the default router ID in the persistent cache.
+        """
+        return self.pcache['households'][hid]['default_router']
+    def set_default_router( self, hid, rid ):
+        """
+        Get the default router ID from the persistent cache.
+        """
+        self.pcache['households'][hid]['default_router'] = rid
+
+    def get_default_flap( self, hid ):
+        """
+        Get the default flap ID from the persistent cache.
+        """
+        return self.pcache['households'][hid]['default_flap']
+    def set_default_flap( self, hid, fid ):
+        """
+        Set the default flap ID in the persistent cache.
+        """
+        self.pcache['households'][hid]['default_flap'] = fid
+
+    def get_pets( self, hid = None ):
+        """
+        Return dict of pets.
+        """
+        hid = hid or self.default_household
+        return self.pcache['households'][hid]['pets']
 
     def update(self):
+        """
+        Update everything.  MUST be invoked immediately after instance creation.
+        """
         self.update_authtoken()
-        self.update_household_id()
-        self.get_device_ids()
-        self.get_pet_info()
+        self.update_households()
+        self.update_device_ids()
+        self.update_pet_info()
         self.update_pet_status()
-        self.flap_status = self.get_flap_status()
-        #self.router_status = self.get_router_status()
+        self.update_flap_status()
+        #self.update_router_status()
         # XXX For now, router status contains little of interest and isn't worth
         #     the API call.
-        self.household = self.get_housedata()
-        self.curfew_status = [ i for i in self.household['data'] if i['type'] == 20 ]
-        self.curfew_lock_info=self.curfew_lock_infocalc()
+        self.update_house_timeline()
 
     def _log_req( self, r, *args, **kwargs ):
-        """Debugging aid: print network requests"""
+        """
+        Debugging aid: print network requests
+        """
         print( 'requests: %s %s -> %s' % (r.request.method, r.request.url, r.status_code,) )
 
     def update_authtoken(self, force = False):
-        """Get authentication token from servers"""
+        """
+        Update persistent cache with authentication token if missing.
+        Use `force = True` when the token expires (the API generally does this
+        automatically).
+        """
         if self.pcache['AuthToken'] is not None and not force:
             return
         data = {"email_address": self.email_address,
@@ -119,80 +171,143 @@ class SurePetFlapNetwork(object):
         response_data = response.json()
         self.pcache['AuthToken'] = response_data['data']['token']
 
-    def update_household_id(self, force = False):
-        if self.pcache['HouseholdID'] is not None and not force:
+    def update_households(self, force = False):
+        """
+        Update persistent cache with info about the household(s) associated with
+        the account.
+        """
+        if self.pcache['households'] is not None and not force:
             return
-        params = (
-            ('with[]', ['household', 'pet', 'users', 'timezone']),
+        params = ( # XXX Could we merge update_households() with update_pet_info()?
+            ('with[]', ['household', 'timezone',],), #'pet',
         )
         headers=self.create_header()
         response_household = self.api_get(URL_HOUSEHOLD, headers=headers, params=params)
         response_household = response_household.json()
-        self.pcache['HouseholdID'] = response_household['data'][0]['id']
+        self.pcache['households'] = {
+            x['id']: {'name': x['name'],
+                      'olson_tz': x['timezone']['timezone'],
+                      'utc_offset':  x['timezone']['utc_offset'],
+                      'default_router': None,
+                      'default_flap': None,
+                      } for x in response_household['data']
+            }
+        self.default_household = response_household['data'][0]['id']
 
-    def get_device_ids(self, force = False):
-        if self.pcache['router_id'] is not None and self.pcache['flap_id'] is not None and not force:
+    def update_device_ids(self, force = False):
+        """
+        Update persistent cache with list of router and flap IDs for each
+        household.  The default router and flap are the first ones found.
+        """
+        household = self.pcache['households'][self.default_household]
+        if (household['default_router'] is not None and
+            household['default_flap'] is not None and not force):
             return
         params = (
             ('with[]', 'children'),
         )
-        url = '%s/%s/device' % (URL_HOUSEHOLD, self.pcache['HouseholdID'],)
-        response_children = self.get_data(url, params)
-        for device in response_children['data']:
-            if device['product_id'] == 3: # Catflap
-                self.pcache['flap_id'] = device['id']
-            elif device['product_id'] == 1: # Router
-                self.pcache['router_id'] = device['id']
+        for hid in self.pcache['households']:
+            routers = self.pcache['households'][hid]['routers'] = []
+            flaps = self.pcache['households'][hid]['flaps'] = []
+            url = '%s/%s/device' % (URL_HOUSEHOLD, hid,)
+            response_children = self.get_data(url, params)
+            for device in response_children['data']:
+                if device['product_id'] == 3: # Catflap
+                    flaps.append( device['id'] )
+                elif device['product_id'] == 1: # Router
+                    routers.append( device['id'] )
+            self.pcache['households'][hid]['default_flap'] = flaps[0]
+            self.pcache['households'][hid]['default_router'] = routers[0]
 
-    def get_pet_info(self, force = False):
-        if self.pcache['pets'] is not None and not force:
+    def update_pet_info(self, force = False):
+        """
+        Update persistent cache pet information.
+        """
+        if self.pcache['households'].get('pets') is not None and not force:
             return
         params = (
             ('with[]', ['photo', 'tag']),
         )
-        url = '%s/%s/pet' % (URL_HOUSEHOLD, self.pcache['HouseholdID'],)
-        response_pets = self.get_data(url, params)
-        self.pcache['pets'] = {}
-        for pet in response_pets['data']:
-            pet_id = pet['id']
-            self.pcache['pets'][pet_id] = {
-                'tag_id': pet['tag_id'],
-                'name': pet['name'],
-                'household': pet['household_id'],
+        for hid in self.pcache['households']:
+            url = '%s/%s/pet' % (URL_HOUSEHOLD, hid,)
+            response_pets = self.get_data(url, params)
+            self.pcache['households'][hid]['pets'] = {
+                x['id']: {'name': x['name'],
+                          'tag_id': x['tag_id'],
+                          'photo': x.get('photo', {}).get('location')
+                          } for x in response_pets['data']
                 }
-            if 'photo' in pet:
-                self.pcache['pets'][pet_id]['photo']=pet['photo']['location']
+
+    def update_flap_status(self, hid = None):
+        """
+        Update flap status (via transient cache, default all).
+
+        To minimise API traffic, please specify a household ID if you can.
+        """
+        hids = hid and [hid] or self.pcache['households'].keys()
+        for hid in hids:
+            household = self.pcache['households'][hid]
+            for fid in household['flaps']:
+                url = '%s/%s/status' % (URL_DEV, fid,)
+                response = self.get_data(url)
+                self.flap_status.setdefault( hid, {} )[fid] = response['data']
+
+    def update_router_status(self, hid = None):
+        """
+        Update router status.  Don't call unless you really need to because
+        there's not much of interest here.  Defaults to all.
+
+        To minimise API traffic, please specify a household ID if you can.
+        """
+        hids = hid and [hid] or self.pcache['households'].keys()
+        for hid in hids:
+            household = self.pcache['households'][hid]
+            for rid in household['routers']:
+                url = '%s/%s/status' % (URL_DEV, rid,)
+                response = self.get_data(url)
+                self.router_status.setdefault( hid, {} )[rid] = response['data']
+
+    def update_house_timeline(self, hid = None):
+        """
+        Update household event timeline (via transient cache) and curfew lock
+        status.  Defaults to all.
+
+        To minimise API traffic, please specify a household ID if you can.
+        """
+        hids = hid and [hid] or self.pcache['households'].keys()
+        for hid in hids:
+            params = (
+                ('type', '0,3,6,7,12,13,14,17,19,20'),
+            )
+            url = '%s/household/%s' % (URL_TIMELINE, hid,)
+            response = self.get_data(url, params)
+            htl = self.house_timeline[hid] = response['data']
+            curfew_events = [x for x in htl if x['type'] == EVT.CURFEW]
+            if curfew_events:
+                # Serialised JSON within a serialised JSON structure?!  Weird.
+                self.curfew_lock_info[hid] = json.loads(curfew_events[0]['data'])['locked']
             else:
-                self.pcache['pets'][pet_id]['photo']=None
+                # new accounts might not be populated with the relevent information
+                self.curfew_lock_info[hid] = None
 
-    def get_flap_status(self):
-        url = '%s/%s/status' % (URL_DEV, self.pcache['flap_id'],)
-        response = self.get_data(url)
-        return response
+    def update_pet_status(self, hid = None):
+        """
+        Update pet status via transient cache.  Defaults to all households.
 
-    def get_router_status(self):
-        url = '%s/%s/status' % (URL_DEV, self.pcache['router_id'],)
-        response = self.get_data(url)
-        return response
-
-    def get_housedata(self):
-        params = (
-            ('type', '0,3,6,7,12,13,14,17,19,20'),
-        )
-        url = '%s/household/%s' % (URL_TIMELINE, self.pcache['HouseholdID'],)
-        response_housedata = self.get_data(url, params)
-        return response_housedata
-
-    def update_pet_status(self):
-        params = (
-            ('type', '0,3,6,7,12,13,14,17,19,20'),
-        )
-        petdata={}
-        for pet_id in self.pcache['pets']:
-            url = '%s/pet/%s/%s' % (URL_TIMELINE, pet_id, self.pcache['HouseholdID'],)
-            response = self.get_data(url, params=params)
-            petdata[pet_id] = response
-        self.petstatus=petdata
+        To minimise API traffic, please specify a household ID if you can.
+        """
+        hids = hid and [hid] or self.pcache['households'].keys()
+        for hid in hids:
+            household = self.pcache['households'][hid]
+            params = (
+                ('type', '0,3,6,7,12,13,14,17,19,20'),
+            )
+            petdata={}
+            for pid in household['pets']:
+                url = '%s/pet/%s/%s' % (URL_TIMELINE, pid, hid,)
+                response = self.get_data(url, params=params)
+                petdata[pid] = response['data']
+            self.pet_status[hid] = petdata
 
     def get_data(self, url, params=None, refresh_interval=3600):
         headers = None
@@ -203,7 +318,7 @@ class SurePetFlapNetwork(object):
             else:
                 self.debug_print('Using cached data for %s' % (url,))
         if headers is None:
-            self.tcache[url]={}
+            self.tcache[url]={}  # XXX shouldn't do this in case of 5xx errors
             headers = self.create_header()
         response = self.api_get(url, headers=headers, params=params)
         if response.status_code in [304, 500, 502, 503,]:
@@ -252,20 +367,25 @@ class SurePetFlapNetwork(object):
 
 
 class SurePetFlapMixin( object ):
-    """A mixin that implements introspection of data collected by
-    SurePetFlapNetwork.
+    """
+    A mixin that implements introspection of data collected by SurePetFlapNetwork.
     """
 
-    def print_timeline(self, petid, entry_type=None):
-        """Print timeline for a particular pet, specify entry_type to only get one direction"""
+    def print_timeline(self, pet_id, entry_type = None, household_id = None):
+        """
+        Print timeline for a particular pet, specify entry_type to only get one
+        direction.  Default household is used if not specified.
+        """
+        household_id = household_id or self.default_household
+        household = self.pcache['households'][household_id]
         try:
-            tag_id = self.pcache['pets'][petid]['tag_id']
-            pet_name = self.pcache['pets'][petid]['name']
+            tag_id = household['pets'][pet_id]['tag_id']
+            pet_name = household['pets'][pet_id]['name']
         except KeyError as e:
             raise SPAPIUnknownPet( str(e) )
-        petdata = self.petstatus[petid]
+        petdata = self.pet_status[household_id][pet_id]
 
-        for movement in petdata['data']:
+        for movement in petdata:
             if movement['type'] in [EVT.LOCK_ST, EVT.USR_IFO, EVT.USR_NEW, EVT.CURFEW]:
                 continue
             try:
@@ -279,26 +399,36 @@ class SurePetFlapMixin( object ):
             except Exception as e:
                 print(e)
 
-    def curfew_lock_infocalc(self):
-        if len(self.curfew_status) > 0:
-            return json.loads(self.curfew_status[0]['data'])['locked']
-        else:
-            return 'Unknown' #new accounts might not be populated with the relevent information
-
-    def locked(self):
-        lock = self.flap_status['data']['locking']['mode']
+    def locked(self, flap_id = None, household_id = None):
+        """
+        Return whether door is locked or not.  Default household and flap used
+        if not specified.
+        """
+        household_id = household_id or self.default_household
+        household = self.pcache['households'][household_id]
+        if flap_id is None:
+            flap_id = household['default_flap']
+        lock = self.flap_status[household_id][flap_id]['locking']['mode']
         if lock == 0:
             return False
         if lock in [1, 2, 3]:
             return True
         if lock == 4:
-            if self.curfew_lock_info:
+            if self.curfew_lock_info[household_id]:
                 return True
             else:
                 return False
 
-    def lock_mode(self):
-        lock = self.flap_status['data']['locking']['mode']
+    def lock_mode(self, flap_id = None, household_id = None):
+        """
+        Returns a string describing the flap lock mode.  Default household and
+        flap used if not specified.
+        """
+        household_id = household_id or self.default_household
+        household = self.pcache['households'][household_id]
+        if flap_id is None:
+            flap_id = household['default_flap']
+        lock = self.flap_status[household_id][flap_id]['locking']['mode']
         if lock == 0:
             return 'Unlocked'
         elif lock == 1:
@@ -309,29 +439,44 @@ class SurePetFlapMixin( object ):
             return 'Locked'
         elif lock == 4:
             #We are in curfew mode, check log to see if in locked or unlocked.
-            if self.curfew_lock_info == 'Unknown':
+            if self.curfew_lock_info[household_id] is None:
                 return 'Curfew enabled but state unknown'
-            elif self.curfew_lock_info:
+            elif self.curfew_lock_info[household_id]:
                 return 'Locked with curfew'
             else:
                 return 'Unlocked with curfew'
 
-    def find_id(self, name):
-        for petid in self.pcache['pets']:
-            if self.pcache['pets'][petid]['name'] == name:
+    def find_id(self, name, household_id = None):
+        """
+        Returns the numeric ID (not the tag ID) of the pet by name.  Match is
+        case insensitive and the first pet found with that name is returned.
+        Default household used if not specified.
+        """
+        household_id = household_id or self.default_household
+        for petid, petdata in self.pcache['households'][household_id]['pets'].items():
+            if petdata['name'].lower() == name.lower():
                 return petid
 
-    def get_current_status(self, petid=None, name=None):
+    def get_current_status(self, petid=None, name=None, household_id = None):
+        """
+        Returns a string describing the last known movement of the pet.
+
+        Note that because sometimes the chip reader fails to read the pet
+        (especially if they exit too quickly), this function can indicate that
+        they're inside when in fact they're outside.  The same limitation
+        presumably applies to the official website and app.
+        """
+        household_id = household_id or self.default_household
         if petid is None and name is None:
             raise ValueError('Please define petid or name')
         if petid is None:
             petid = self.find_id(name)
         petid=int(petid)
-        if not int(petid) in self.petstatus:
+        if not int(petid) in self.pet_status[household_id]:
             return 'Unknown'
         else:
             #Get last update
-            for movement in self.petstatus[petid]['data']:
+            for movement in self.pet_status[household_id][petid]:
                 if movement['type'] in [EVT.LOCK_ST, EVT.USR_IFO, EVT.USR_NEW, EVT.CURFEW]:
                     continue
                 if movement['movements'][0]['direction'] != 0:
@@ -342,7 +487,13 @@ class SurePetFlapMixin( object ):
 class SurePetFlap(SurePetFlapMixin, SurePetFlapNetwork):
     """Class to take care of network communication with SurePet's products.
 
-    See docstring for parent classes on how to use.
+    See docstring for parent classes on how to use.  In particular, **please**
+    do preserve pcache and tcache between instantiations in order to minimise
+    wasted requests to Sure's servers.
+
+    Attributes pcache and tcache are guaranteed to be pickleable but not
+    guaranteed to be serialisable as JSON.  How you store and retrieve these
+    is up to you.
     """
     pass
 
