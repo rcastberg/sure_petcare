@@ -3,26 +3,37 @@
 Access the sure petcare access information
 """
 
-import collections
 import json
 import requests
 from datetime import datetime, timedelta
-import os
+import sure_petcare.utils as utils
+from .utils import mk_enum
 
 DIRECTION ={0:'Looked through',1:'Entered House',2:'Left House'}
 INOUT_STATUS = {1 : 'Inside', 2 : 'Outside'}
 
 # The following event types are known, eg EVT.CURFEW.
-EVT = (('MOVE', 0),
-       ('MOVE_UID', 7), # movement of unknown animal
-       ('LOCK_ST', 6),
-       ('USR_IFO', 12),
-       ('USR_NEW', 17),
-       ('CURFEW', 20),
-       )
-y = [x[1] for x in EVT]
-EVT = collections.namedtuple( 'EVT', [x[0] for x in EVT] )
-EVT = EVT( *y )
+EVT = mk_enum( 'EVT',
+               {'MOVE': 0,
+                'MOVE_UID': 7, # movement of unknown animal
+                'LOCK_ST': 6,
+                'USR_IFO': 12,
+                'USR_NEW': 17,
+                'CURFEW': 20,
+                } )
+
+LK_MOD = mk_enum( 'LK_MOD',
+                  {'UNLOCKED': 0,
+                   'LOCKED_IN': 1,
+                   'LOCKED_OUT': 2,
+                   'LOCKED_ALL': 3,
+                   'CURFEW': 4,
+                   } )
+
+PROD_ID = mk_enum( 'PROD_ID',
+                   {'ROUTER': 1,
+                    'FLAP': 3,
+                    } )
 
 
 # REST API endpoints (no trailing slash)
@@ -64,7 +75,7 @@ class SurePetFlapNetwork(object):
         self.email_address = email_address
         self.password = password
         if device_id is None:
-            self.device_id = gen_device_id()
+            self.device_id = utils.gen_device_id()
         else:
             self.device_id = device_id
         # The persistent object cache is for data that rarely or never change.
@@ -127,7 +138,8 @@ class SurePetFlapNetwork(object):
 
     def get_households( self ):
         """
-        Return dict of households.
+        Return dict of households which include name and timezone information
+        suitable for use with pytz.
         """
         return self.pcache['households']
 
@@ -152,12 +164,6 @@ class SurePetFlapNetwork(object):
         # XXX For now, router status contains little of interest and isn't worth
         #     the API call.
         self.update_house_timeline()
-
-    def _log_req( self, r, *args, **kwargs ):
-        """
-        Debugging aid: print network requests
-        """
-        print( 'requests: %s %s -> %s' % (r.request.method, r.request.url, r.status_code,) )
 
     def update_authtoken(self, force = False):
         """
@@ -219,9 +225,9 @@ class SurePetFlapNetwork(object):
             url = '%s/%s/device' % (_URL_HOUSEHOLD, hid,)
             response_children = self._get_data(url, params)
             for device in response_children['data']:
-                if device['product_id'] == 3: # Catflap
+                if device['product_id'] == PROD_ID.FLAP: # Catflap
                     flaps.append( device['id'] )
-                elif device['product_id'] == 1: # Router
+                elif device['product_id'] == PROD_ID.ROUTER: # Router
                     routers.append( device['id'] )
             self.pcache['households'][hid]['default_flap'] = flaps[0]
             self.pcache['households'][hid]['default_router'] = routers[0]
@@ -372,6 +378,12 @@ class SurePetFlapNetwork(object):
         if self.debug:
             print(string)
 
+    def _log_req( self, r, *args, **kwargs ):
+        """
+        Debugging aid: print network requests
+        """
+        print( 'requests: %s %s -> %s' % (r.request.method, r.request.url, r.status_code,) )
+
 
 class SurePetFlapMixin( object ):
     """
@@ -416,11 +428,11 @@ class SurePetFlapMixin( object ):
         if flap_id is None:
             flap_id = household['default_flap']
         lock = self.flap_status[household_id][flap_id]['locking']['mode']
-        if lock == 0:
+        if lock == LK_MOD.UNLOCKED:
             return False
-        if lock in [1, 2, 3]:
+        if lock in [LK_MOD.LOCKED_IN, LK_MOD.LOCKED_OUT, LK_MOD.LOCKED_ALL,]:
             return True
-        if lock == 4:
+        if lock == LK_MOD.CURFEW:
             if self.curfew_lock_info[household_id]:
                 return True
             else:
@@ -436,15 +448,15 @@ class SurePetFlapMixin( object ):
         if flap_id is None:
             flap_id = household['default_flap']
         lock = self.flap_status[household_id][flap_id]['locking']['mode']
-        if lock == 0:
+        if lock == LK_MOD.UNLOCKED:
             return 'Unlocked'
-        elif lock == 1:
+        elif lock == LK_MOD.LOCKED_IN:
             return 'Keep pets in'
-        elif lock == 2:
+        elif lock == LK_MOD.LOCKED_OUT:
             return 'Keep pets out'
-        elif lock == 3:
+        elif lock == LK_MOD.LOCKED_ALL:
             return 'Locked'
-        elif lock == 4:
+        elif lock == LK_MOD.CURFEW:
             #We are in curfew mode, check log to see if in locked or unlocked.
             if self.curfew_lock_info[household_id] is None:
                 return 'Curfew enabled but state unknown'
@@ -484,7 +496,7 @@ class SurePetFlapMixin( object ):
         else:
             #Get last update
             for movement in self.pet_status[household_id][petid]:
-                if movement['type'] in [EVT.LOCK_ST, EVT.USR_IFO, EVT.USR_NEW, EVT.CURFEW]:
+                if movement['type'] in [EVT.MOVE_UID, EVT.LOCK_ST, EVT.USR_IFO, EVT.USR_NEW, EVT.CURFEW]:
                     continue
                 if movement['movements'][0]['direction'] != 0:
                     return INOUT_STATUS[movement['movements'][0]['direction']]
@@ -515,28 +527,3 @@ class SPAPIAuthError( SPAPIException ):
 
 class SPAPIUnknownPet( SPAPIException ):
     pass
-
-
-def getmac():
-    mac = None
-    folders = os.listdir('/sys/class/net/')
-    for interface in folders:
-        if interface == 'lo':
-            continue
-        try:
-            mac = open('/sys/class/net/'+interface+'/address').readline()
-            # XXX What happens when multiple interfaces are found?  Might
-            #     be better to break here to stop at the first MAC which,
-            #     on most/many systems, will be the first wired Ethernet
-            #     interface.
-            # break
-        except Exception as e:
-            return None
-    if mac is not None:
-        return mac.strip() #trim new line
-
-
-def gen_device_id():
-    mac_dec = int( getmac().replace( ':', '').replace( '-', '' ), 16 )
-    # Use low order bits because upper two octets are low entropy
-    return str(mac_dec)[-10:]
