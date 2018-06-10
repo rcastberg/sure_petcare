@@ -26,10 +26,10 @@ EVT = EVT( *y )
 
 
 # REST API endpoints (no trailing slash)
-URL_AUTH = 'https://app.api.surehub.io/api/auth/login'
-URL_HOUSEHOLD = 'https://app.api.surehub.io/api/household'
-URL_DEV = 'https://app.api.surehub.io/api/device'
-URL_TIMELINE = 'https://app.api.surehub.io/api/timeline'
+_URL_AUTH = 'https://app.api.surehub.io/api/auth/login'
+_URL_HOUSEHOLD = 'https://app.api.surehub.io/api/household'
+_URL_DEV = 'https://app.api.surehub.io/api/device'
+_URL_TIMELINE = 'https://app.api.surehub.io/api/timeline'
 
 API_USER_AGENT = 'Mozilla/5.0 (Linux; Android 7.0; SM-G930F Build/NRD90M; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/64.0.3282.137 Mobile Safari/537.36'
 
@@ -171,8 +171,8 @@ class SurePetFlapNetwork(object):
                 "password": self.password,
                 "device_id": self.device_id,
                 }
-        headers=self.create_header()
-        response = self.s.post(URL_AUTH, headers=headers, json=data)
+        headers=self._create_header()
+        response = self.s.post(_URL_AUTH, headers=headers, json=data)
         if response.status_code == 401:
             raise SPAPIAuthError()
         response_data = response.json()
@@ -188,8 +188,8 @@ class SurePetFlapNetwork(object):
         params = ( # XXX Could we merge update_households() with update_pet_info()?
             ('with[]', ['household', 'timezone',],), #'pet',
         )
-        headers=self.create_header()
-        response_household = self.api_get(URL_HOUSEHOLD, headers=headers, params=params)
+        headers=self._create_header()
+        response_household = self._api_get(_URL_HOUSEHOLD, headers=headers, params=params)
         response_household = response_household.json()
         self.pcache['households'] = {
             x['id']: {'name': x['name'],
@@ -216,8 +216,8 @@ class SurePetFlapNetwork(object):
         for hid in self.pcache['households']:
             routers = self.pcache['households'][hid]['routers'] = []
             flaps = self.pcache['households'][hid]['flaps'] = []
-            url = '%s/%s/device' % (URL_HOUSEHOLD, hid,)
-            response_children = self.get_data(url, params)
+            url = '%s/%s/device' % (_URL_HOUSEHOLD, hid,)
+            response_children = self._get_data(url, params)
             for device in response_children['data']:
                 if device['product_id'] == 3: # Catflap
                     flaps.append( device['id'] )
@@ -236,8 +236,8 @@ class SurePetFlapNetwork(object):
             ('with[]', ['photo', 'tag']),
         )
         for hid in self.pcache['households']:
-            url = '%s/%s/pet' % (URL_HOUSEHOLD, hid,)
-            response_pets = self.get_data(url, params)
+            url = '%s/%s/pet' % (_URL_HOUSEHOLD, hid,)
+            response_pets = self._get_data(url, params)
             self.pcache['households'][hid]['pets'] = {
                 x['id']: {'name': x['name'],
                           'tag_id': x['tag_id'],
@@ -255,8 +255,8 @@ class SurePetFlapNetwork(object):
         for hid in hids:
             household = self.pcache['households'][hid]
             for fid in household['flaps']:
-                url = '%s/%s/status' % (URL_DEV, fid,)
-                response = self.get_data(url)
+                url = '%s/%s/status' % (_URL_DEV, fid,)
+                response = self._get_data(url)
                 self.flap_status.setdefault( hid, {} )[fid] = response['data']
 
     def update_router_status(self, hid = None):
@@ -270,8 +270,8 @@ class SurePetFlapNetwork(object):
         for hid in hids:
             household = self.pcache['households'][hid]
             for rid in household['routers']:
-                url = '%s/%s/status' % (URL_DEV, rid,)
-                response = self.get_data(url)
+                url = '%s/%s/status' % (_URL_DEV, rid,)
+                response = self._get_data(url)
                 self.router_status.setdefault( hid, {} )[rid] = response['data']
 
     def update_house_timeline(self, hid = None):
@@ -286,8 +286,8 @@ class SurePetFlapNetwork(object):
             params = (
                 ('type', '0,3,6,7,12,13,14,17,19,20'),
             )
-            url = '%s/household/%s' % (URL_TIMELINE, hid,)
-            response = self.get_data(url, params)
+            url = '%s/household/%s' % (_URL_TIMELINE, hid,)
+            response = self._get_data(url, params)
             htl = self.house_timeline[hid] = response['data']
             curfew_events = [x for x in htl if x['type'] == EVT.CURFEW]
             if curfew_events:
@@ -311,23 +311,23 @@ class SurePetFlapNetwork(object):
             )
             petdata={}
             for pid in household['pets']:
-                url = '%s/pet/%s/%s' % (URL_TIMELINE, pid, hid,)
-                response = self.get_data(url, params=params)
+                url = '%s/pet/%s/%s' % (_URL_TIMELINE, pid, hid,)
+                response = self._get_data(url, params=params)
                 petdata[pid] = response['data']
             self.pet_status[hid] = petdata
 
-    def get_data(self, url, params=None, refresh_interval=3600):
+    def _get_data(self, url, params=None, refresh_interval=3600):
         headers = None
         if url in self.tcache:
             time_since_last =  datetime.now() - self.tcache[url]['ts']
             if time_since_last.total_seconds() < refresh_interval: #Refresh every hour at least
-                headers = self.create_header(ETag=self.tcache[url]['ETag'])
+                headers = self._create_header(ETag=self.tcache[url]['ETag'])
             else:
-                self.debug_print('Using cached data for %s' % (url,))
+                self._debug_print('Using cached data for %s' % (url,))
         if headers is None:
             self.tcache[url]={}  # XXX shouldn't do this in case of 5xx errors
-            headers = self.create_header()
-        response = self.api_get(url, headers=headers, params=params)
+            headers = self._create_header()
+        response = self._api_get(url, headers=headers, params=params)
         if response.status_code in [304, 500, 502, 503,]:
             # Used cached data in event of (respectively), not modified, server
             # error, server overload and gateway timeout
@@ -338,7 +338,7 @@ class SurePetFlapNetwork(object):
         self.tcache[url]['ts'] = datetime.now()
         return self.tcache[url]['LastData']
 
-    def create_header(self, ETag=None):
+    def _create_header(self, ETag=None):
         headers={
             'Connection': 'keep-alive',
             'Accept': 'application/json, text/plain, */*',
@@ -356,7 +356,7 @@ class SurePetFlapNetwork(object):
             headers['If-None-Match'] = ETag
         return headers
 
-    def api_get( self, url, *args, **kwargs ):
+    def _api_get( self, url, *args, **kwargs ):
         r = self.s.get( url, *args, **kwargs )
         if r.status_code == 401:
             # Retry once
@@ -368,7 +368,7 @@ class SurePetFlapNetwork(object):
                 raise SPAPIException( 'Auth required but not present in header' )
         return r
 
-    def debug_print(self, string):
+    def _debug_print(self, string):
         if self.debug:
             print(string)
 
