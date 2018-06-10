@@ -14,6 +14,7 @@ INOUT_STATUS = {1 : 'Inside', 2 : 'Outside'}
 
 # The following event types are known, eg EVT.CURFEW.
 EVT = (('MOVE', 0),
+       ('MOVE_UID', 7), # movement of unknown animal
        ('LOCK_ST', 6),
        ('USR_IFO', 12),
        ('USR_NEW', 17),
@@ -123,6 +124,12 @@ class SurePetFlapNetwork(object):
         Set the default flap ID in the persistent cache.
         """
         self.pcache['households'][hid]['default_flap'] = fid
+
+    def get_households( self ):
+        """
+        Return dict of households.
+        """
+        return self.pcache['households']
 
     def get_pets( self, hid = None ):
         """
@@ -386,7 +393,7 @@ class SurePetFlapMixin( object ):
         petdata = self.pet_status[household_id][pet_id]
 
         for movement in petdata:
-            if movement['type'] in [EVT.LOCK_ST, EVT.USR_IFO, EVT.USR_NEW, EVT.CURFEW]:
+            if movement['type'] in [EVT.MOVE_UID, EVT.LOCK_ST, EVT.USR_IFO, EVT.USR_NEW, EVT.CURFEW]:
                 continue
             try:
                 if entry_type is not None:
