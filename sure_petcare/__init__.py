@@ -86,8 +86,6 @@ class SurePetFlapNetwork(object):
         else:
             self.tcache = tcache
 
-        self.update()
-
     def update(self):
         self.update_authtoken()
         self.update_household_id()
