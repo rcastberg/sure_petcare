@@ -28,12 +28,21 @@ LK_MOD = mk_enum( 'LK_MOD',
                    'LOCKED_OUT': 2,
                    'LOCKED_ALL': 3,
                    'CURFEW': 4,
+                   'CURFEW_LOCKED': -1,
+                   'CURFEW_UNLOCKED': -2,
+                   'CURFEW_UNKNOWN': -3,
                    } )
 
 PROD_ID = mk_enum( 'PROD_ID',
                    {'ROUTER': 1,
                     'FLAP': 3,
                     } )
+
+LOC = mk_enum( 'LOC',
+               {'INSIDE': 1,
+                'OUTSIDE': 2,
+                'UNKNOWN': -1,
+                } )
 
 
 # REST API endpoints (no trailing slash)
@@ -171,6 +180,45 @@ class SurePetFlapAPI(object):
         for petid, petdata in self.cache['households'][household_id]['pets'].items():
             if petdata['name'].lower() == name.lower():
                 return petid
+
+    def get_lock_mode(self, flap_id = None, household_id = None):
+        """
+        Returns one of enum LK_MOD indicating flap lock mode.  Default household
+        and flap used if not specified.
+        """
+        household_id = household_id or self.default_household
+        household = self.cache['households'][household_id]
+        if flap_id is None:
+            flap_id = household['default_flap']
+        mode = self.flap_status[household_id][flap_id]['locking']['mode']
+        if mode == LK_MOD.CURFEW:
+            if self.curfew_locked[household_id] is None:
+                mode = LK_MOD.CURFEW_UNKNOWN
+            elif self.curfew_locked[household_id]:
+                mode = LK_MOD.CURFEW_LOCKED
+            else:
+                mode = LK_MOD.CURFEW_UNLOCKED
+        return mode
+
+    def get_pet_location(self, pet_id, household_id = None):
+        """
+        Returns a string describing the last known movement of the pet.
+
+        Note that because sometimes the chip reader fails to read the pet
+        (especially if they exit too quickly), this function can indicate that
+        they're inside when in fact they're outside.  The same limitation
+        presumably applies to the official website and app.
+        """
+        household_id = household_id or self.default_household
+        if pet_id not in self.pet_status[household_id]:
+            raise SPAPIUnknownPet()
+        # Most recent entry in .pet_status might not be a valid movement
+        for movement in self.pet_status[household_id][pet_id]:
+            if movement['type'] in [EVT.MOVE_UID, EVT.LOCK_ST, EVT.USR_IFO, EVT.USR_NEW, EVT.CURFEW]:
+                continue
+            if movement['movements'][0]['direction'] != 0:
+                return movement['movements'][0]['direction']
+        return LOC.UNKNOWN
 
     def update(self):
         """
@@ -469,11 +517,7 @@ class SurePetFlapMixin( object ):
         Returns a string describing the flap lock mode.  Default household and
         flap used if not specified.
         """
-        household_id = household_id or self.default_household
-        household = self.cache['households'][household_id]
-        if flap_id is None:
-            flap_id = household['default_flap']
-        lock = self.flap_status[household_id][flap_id]['locking']['mode']
+        lock = self.get_lock_mode( flap_id, household_id )
         if lock == LK_MOD.UNLOCKED:
             return 'Unlocked'
         elif lock == LK_MOD.LOCKED_IN:
@@ -482,14 +526,12 @@ class SurePetFlapMixin( object ):
             return 'Keep pets out'
         elif lock == LK_MOD.LOCKED_ALL:
             return 'Locked'
-        elif lock == LK_MOD.CURFEW:
-            #We are in curfew mode, check log to see if in locked or unlocked.
-            if self.curfew_locked[household_id] is None:
-                return 'Curfew enabled but state unknown'
-            elif self.curfew_locked[household_id]:
-                return 'Locked with curfew'
-            else:
-                return 'Unlocked with curfew'
+        elif lock == LK_MOD.CURFEW_UNKNOWN:
+            return 'Curfew enabled but state unknown'
+        elif lock == LK_MOD.CURFEW_LOCKED:
+            return 'Locked with curfew'
+        elif lock == LK_MOD.CURFEW_UNLOCKED:
+            return 'Unlocked with curfew'
 
     def get_current_status(self, petid=None, name=None, household_id = None):
         """
@@ -500,22 +542,17 @@ class SurePetFlapMixin( object ):
         they're inside when in fact they're outside.  The same limitation
         presumably applies to the official website and app.
         """
-        household_id = household_id or self.default_household
         if petid is None and name is None:
             raise ValueError('Please define petid or name')
         if petid is None:
             petid = self.get_pet_id_by_name(name)
         petid=int(petid)
-        if not int(petid) in self.pet_status[household_id]:
+        loc = get_pet_location( pet_id, household_id )
+        if loc == LOC.UNKNOWN:
             return 'Unknown'
         else:
             #Get last update
-            for movement in self.pet_status[household_id][petid]:
-                if movement['type'] in [EVT.MOVE_UID, EVT.LOCK_ST, EVT.USR_IFO, EVT.USR_NEW, EVT.CURFEW]:
-                    continue
-                if movement['movements'][0]['direction'] != 0:
-                    return INOUT_STATUS[movement['movements'][0]['direction']]
-            return 'Unknown'
+            return INOUT_STATUS[loc]
 
 
 class SurePetFlap(SurePetFlapMixin, SurePetFlapAPI):
