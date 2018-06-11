@@ -63,8 +63,9 @@ class SurePetFlapAPI(object):
     """
 
     def __init__(self, email_address=None, password=None, device_id=None, cache=None, debug=False):
-        """`email_address` and `password` are self explanatory and are the only
-        mandatory arguments.
+        """
+        `email_address` and `password` are self explanatory.  They are
+        mandatory if a populated `cache` object is not supplied.
 
         `device_id` is the ID of *this* client.  If none supplied, a plausible,
         unique-ish default is supplied.
@@ -77,6 +78,9 @@ class SurePetFlapAPI(object):
         it also means you don't need to supply your email and password again
         unless they change.
 
+        Unless supplied with a populated `cache` object, the new instance
+        remains unpopulated (and unusable) until method `update()` has been
+        called.
         """
         if (email_address is None or password is None) and cache is None:
             raise ValueError('Please provide, email, password and device id')
@@ -202,7 +206,7 @@ class SurePetFlapAPI(object):
 
     def get_pet_location(self, pet_id, household_id = None):
         """
-        Returns a string describing the last known movement of the pet.
+        Returns one of enum LOC indicating last known movement of the pet.
 
         Note that because sometimes the chip reader fails to read the pet
         (especially if they exit too quickly), this function can indicate that
