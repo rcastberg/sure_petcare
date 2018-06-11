@@ -161,6 +161,17 @@ class SurePetFlapAPI(object):
         hid = hid or self.default_household
         return self.cache['households'][hid]['pets']
 
+    def get_pet_id_by_name(self, name, household_id = None):
+        """
+        Returns the numeric ID (not the tag ID) of the pet by name.  Match is
+        case insensitive and the first pet found with that name is returned.
+        Default household used if not specified.
+        """
+        household_id = household_id or self.default_household
+        for petid, petdata in self.cache['households'][household_id]['pets'].items():
+            if petdata['name'].lower() == name.lower():
+                return petid
+
     def update(self):
         """
         Update everything.  MUST be invoked immediately after instance creation
@@ -480,17 +491,6 @@ class SurePetFlapMixin( object ):
             else:
                 return 'Unlocked with curfew'
 
-    def find_id(self, name, household_id = None):
-        """
-        Returns the numeric ID (not the tag ID) of the pet by name.  Match is
-        case insensitive and the first pet found with that name is returned.
-        Default household used if not specified.
-        """
-        household_id = household_id or self.default_household
-        for petid, petdata in self.cache['households'][household_id]['pets'].items():
-            if petdata['name'].lower() == name.lower():
-                return petid
-
     def get_current_status(self, petid=None, name=None, household_id = None):
         """
         Returns a string describing the last known movement of the pet.
@@ -504,7 +504,7 @@ class SurePetFlapMixin( object ):
         if petid is None and name is None:
             raise ValueError('Please define petid or name')
         if petid is None:
-            petid = self.find_id(name)
+            petid = self.get_pet_id_by_name(name)
         petid=int(petid)
         if not int(petid) in self.pet_status[household_id]:
             return 'Unknown'
