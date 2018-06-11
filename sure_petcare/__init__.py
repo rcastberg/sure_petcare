@@ -45,7 +45,7 @@ _URL_TIMELINE = 'https://app.api.surehub.io/api/timeline'
 API_USER_AGENT = 'Mozilla/5.0 (Linux; Android 7.0; SM-G930F Build/NRD90M; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/64.0.3282.137 Mobile Safari/537.36'
 
 
-class SurePetFlapNetwork(object):
+class SurePetFlapAPI(object):
     """Class to take care of network communication with SurePet's products.
 
     Unless you want to parse data from Sure directly, instantiate SurePetFlap()
@@ -402,7 +402,7 @@ class SurePetFlapNetwork(object):
 
 class SurePetFlapMixin( object ):
     """
-    A mixin that implements introspection of data collected by SurePetFlapNetwork.
+    A mixin that implements introspection of data collected by SurePetFlapAPI.
     """
 
     def print_timeline(self, pet_id, entry_type = None, household_id = None):
@@ -518,7 +518,7 @@ class SurePetFlapMixin( object ):
             return 'Unknown'
 
 
-class SurePetFlap(SurePetFlapMixin, SurePetFlapNetwork):
+class SurePetFlap(SurePetFlapMixin, SurePetFlapAPI):
     """Class to take care of network communication with SurePet's products.
 
     See docstring for parent classes on how to use.  In particular, **please**
