@@ -87,7 +87,7 @@ class SurePetFlapAPI(object):
                           'flap_status': {}, # indexed by household
                           'pet_status': {}, # indexed by household
                           'house_timeline': {}, # indexed by household
-                          'curfew_lock_info': {}, # indexed by household
+                          'curfew_locked': {}, # indexed by household
                           }
         else:
             self.cache = cache
@@ -122,8 +122,8 @@ class SurePetFlapAPI(object):
     def house_timeline( self ):
         return self.cache['house_timeline']
     @property
-    def curfew_lock_info( self ):
-        return self.cache['curfew_lock_info']
+    def curfew_locked( self ):
+        return self.cache['curfew_locked']
 
     def get_default_router( self, hid ):
         """
@@ -310,10 +310,10 @@ class SurePetFlapAPI(object):
             curfew_events = [x for x in htl if x['type'] == EVT.CURFEW]
             if curfew_events:
                 # Serialised JSON within a serialised JSON structure?!  Weird.
-                self.cache['curfew_lock_info'][hid] = json.loads(curfew_events[0]['data'])['locked']
+                self.cache['curfew_locked'][hid] = json.loads(curfew_events[0]['data'])['locked']
             else:
                 # new accounts might not be populated with the relevent information
-                self.cache['curfew_lock_info'][hid] = None
+                self.cache['curfew_locked'][hid] = None
 
     def update_pet_status(self, hid = None):
         """
@@ -448,7 +448,7 @@ class SurePetFlapMixin( object ):
         if lock in [LK_MOD.LOCKED_IN, LK_MOD.LOCKED_OUT, LK_MOD.LOCKED_ALL,]:
             return True
         if lock == LK_MOD.CURFEW:
-            if self.curfew_lock_info[household_id]:
+            if self.curfew_locked[household_id]:
                 return True
             else:
                 return False
@@ -473,9 +473,9 @@ class SurePetFlapMixin( object ):
             return 'Locked'
         elif lock == LK_MOD.CURFEW:
             #We are in curfew mode, check log to see if in locked or unlocked.
-            if self.curfew_lock_info[household_id] is None:
+            if self.curfew_locked[household_id] is None:
                 return 'Curfew enabled but state unknown'
-            elif self.curfew_lock_info[household_id]:
+            elif self.curfew_locked[household_id]:
                 return 'Locked with curfew'
             else:
                 return 'Unlocked with curfew'
