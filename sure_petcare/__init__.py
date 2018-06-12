@@ -88,6 +88,7 @@ class SurePetFlapAPI(object):
         self.debug=debug
         self.s = requests.session()
         if debug:
+            self.req_count = self.req_rx_bytes = 0
             self.s.hooks['response'].append( self._log_req )
         if device_id is None:
             self.device_id = utils.gen_device_id()
@@ -470,7 +471,11 @@ class SurePetFlapAPI(object):
         """
         Debugging aid: print network requests
         """
-        print( 'requests: %s %s -> %s' % (r.request.method, r.request.url, r.status_code,) )
+        l = len( '\n'.join( ': '.join(x) for x in r.headers.items() ) )
+        l += len(r.content)
+        self.req_count += 1
+        self.req_rx_bytes += l
+        print( 'requests: %s %s -> %s (%0.3f kiB, total %0.3f kiB in %s requests)' % (r.request.method, r.request.url, r.status_code, l/1024.0, self.req_rx_bytes/1024.0, self.req_count,) )
 
 
 class SurePetFlapMixin( object ):
