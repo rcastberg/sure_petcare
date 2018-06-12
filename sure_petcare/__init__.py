@@ -50,6 +50,7 @@ _URL_AUTH = 'https://app.api.surehub.io/api/auth/login'
 _URL_HOUSEHOLD = 'https://app.api.surehub.io/api/household'
 _URL_DEV = 'https://app.api.surehub.io/api/device'
 _URL_TIMELINE = 'https://app.api.surehub.io/api/timeline'
+_URL_PET = 'https://app.api.surehub.io/api/pet'
 
 API_USER_AGENT = 'Mozilla/5.0 (Linux; Android 7.0; SM-G930F Build/NRD90M; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/64.0.3282.137 Mobile Safari/537.36'
 
@@ -99,6 +100,7 @@ class SurePetFlapAPI(object):
                           'router_status': {}, # indexed by household
                           'flap_status': {}, # indexed by household
                           'pet_status': {}, # indexed by household
+                          'pet_timeline': {}, # indexed by household
                           'house_timeline': {}, # indexed by household
                           'curfew_locked': {}, # indexed by household
                           }
@@ -131,6 +133,9 @@ class SurePetFlapAPI(object):
     @property
     def pet_status( self ):
         return self.cache['pet_status']
+    @property
+    def pet_timeline( self ):
+        return self.cache['pet_timeline']
     @property
     def house_timeline( self ):
         return self.cache['house_timeline']
@@ -212,13 +217,7 @@ class SurePetFlapAPI(object):
         household_id = household_id or self.default_household
         if pet_id not in self.pet_status[household_id]:
             raise SPAPIUnknownPet()
-        # Most recent entry in .pet_status might not be a valid movement
-        for movement in self.pet_status[household_id][pet_id]:
-            if movement['type'] in [EVT.MOVE_UID, EVT.LOCK_ST, EVT.USR_IFO, EVT.USR_NEW, EVT.CURFEW]:
-                continue
-            if movement['movements'][0]['direction'] != 0:
-                return movement['movements'][0]['direction']
-        return LOC.UNKNOWN
+        return self.pet_status[household_id][pet_id]['where']
 
     def update(self):
         """
@@ -229,6 +228,7 @@ class SurePetFlapAPI(object):
         self.update_households()
         self.update_device_ids()
         self.update_pet_info()
+        self.update_pet_timeline()
         self.update_pet_status()
         self.update_flap_status()
         #self.update_router_status()
@@ -375,6 +375,21 @@ class SurePetFlapAPI(object):
 
     def update_pet_status(self, hid = None):
         """
+        Update pet status.  Default household used if not specified.
+
+        To minimise API traffic, please specify a household ID if you can.
+        """
+        hids = hid and [hid] or self.cache['households'].keys()
+        for hid in hids:
+            self.cache['pet_status'][hid] = {}
+            for pid in self.get_pets( hid ):
+                url = '%s/%s/position' % (_URL_PET, pid,)
+                headers = self._create_header()
+                response = self._get_data(url)
+                self.cache['pet_status'][hid][pid] = response['data']
+
+    def update_pet_timeline(self, hid = None):
+        """
         Update pet timeline.  Default household used if not specified.
 
         To minimise API traffic, please specify a household ID if you can.
@@ -390,7 +405,7 @@ class SurePetFlapAPI(object):
                 url = '%s/pet/%s/%s' % (_URL_TIMELINE, pid, hid,)
                 response = self._get_data(url, params=params)
                 petdata[pid] = response['data']
-            self.cache['pet_status'][hid] = petdata
+            self.cache['pet_timeline'][hid] = petdata
 
     def _get_data(self, url, params=None, refresh_interval=3600):
         headers = None
@@ -475,7 +490,7 @@ class SurePetFlapMixin( object ):
             pet_name = household['pets'][pet_id]['name']
         except KeyError as e:
             raise SPAPIUnknownPet( str(e) )
-        petdata = self.pet_status[household_id][pet_id]
+        petdata = self.pet_timeline[household_id][pet_id]
 
         for movement in petdata:
             if movement['type'] in [EVT.MOVE_UID, EVT.LOCK_ST, EVT.USR_IFO, EVT.USR_NEW, EVT.CURFEW]:
