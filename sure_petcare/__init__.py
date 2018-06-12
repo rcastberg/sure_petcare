@@ -113,13 +113,13 @@ class SurePetFlapAPI(object):
     @property
     def default_household( self ):
         """
-        Get the default house ID from the persistent cache.
+        Get the default house ID.
         """
         return self.cache['default_household']
     @default_household.setter
     def default_household( self, id ):
         """
-        Set the default household in the persistent cache.
+        Set the default household.
         """
         self.cache['default_household'] = id
     @property
@@ -140,23 +140,23 @@ class SurePetFlapAPI(object):
 
     def get_default_router( self, hid ):
         """
-        Set the default router ID in the persistent cache.
+        Set the default router ID.
         """
         return self.cache['households'][hid]['default_router']
     def set_default_router( self, hid, rid ):
         """
-        Get the default router ID from the persistent cache.
+        Get the default router ID.
         """
         self.cache['households'][hid]['default_router'] = rid
 
     def get_default_flap( self, hid ):
         """
-        Get the default flap ID from the persistent cache.
+        Get the default flap ID.
         """
         return self.cache['households'][hid]['default_flap']
     def set_default_flap( self, hid, fid ):
         """
-        Set the default flap ID in the persistent cache.
+        Set the default flap ID.
         """
         self.cache['households'][hid]['default_flap'] = fid
 
@@ -169,7 +169,7 @@ class SurePetFlapAPI(object):
 
     def get_pets( self, hid = None ):
         """
-        Return dict of pets.
+        Return dict of pets.  Default household used if not specified.
         """
         hid = hid or self.default_household
         return self.cache['households'][hid]['pets']
@@ -207,11 +207,7 @@ class SurePetFlapAPI(object):
     def get_pet_location(self, pet_id, household_id = None):
         """
         Returns one of enum LOC indicating last known movement of the pet.
-
-        Note that because sometimes the chip reader fails to read the pet
-        (especially if they exit too quickly), this function can indicate that
-        they're inside when in fact they're outside.  The same limitation
-        presumably applies to the official website and app.
+        Default household used if not specified.
         """
         household_id = household_id or self.default_household
         if pet_id not in self.pet_status[household_id]:
@@ -242,9 +238,8 @@ class SurePetFlapAPI(object):
 
     def update_authtoken(self, force = False):
         """
-        Update persistent cache with authentication token if missing.
-        Use `force = True` when the token expires (the API generally does this
-        automatically).
+        Update cache with authentication token if missing.  Use `force = True`
+        when the token expires (the API generally does this automatically).
         """
         if self.cache['AuthToken'] is not None and not force:
             return
@@ -261,8 +256,7 @@ class SurePetFlapAPI(object):
 
     def update_households(self, force = False):
         """
-        Update persistent cache with info about the household(s) associated with
-        the account.
+        Update cache with info about the household(s) associated with the account.
         """
         if self.cache['households'] is not None and not force:
             return
@@ -284,8 +278,8 @@ class SurePetFlapAPI(object):
 
     def update_device_ids(self, force = False):
         """
-        Update persistent cache with list of router and flap IDs for each
-        household.  The default router and flap are the first ones found.
+        Update cache with list of router and flap IDs for each household.  The
+        default router and flap are set to the first ones found.
         """
         household = self.cache['households'][self.default_household]
         if (household['default_router'] is not None and
@@ -309,7 +303,7 @@ class SurePetFlapAPI(object):
 
     def update_pet_info(self, force = False):
         """
-        Update persistent cache pet information.
+        Update cache with pet information.
         """
         if self.cache['households'].get('pets') is not None and not force:
             return
@@ -328,7 +322,7 @@ class SurePetFlapAPI(object):
 
     def update_flap_status(self, hid = None):
         """
-        Update flap status (via transient cache, default all).
+        Update flap status.  Default household used if not specified.
 
         To minimise API traffic, please specify a household ID if you can.
         """
@@ -343,7 +337,8 @@ class SurePetFlapAPI(object):
     def update_router_status(self, hid = None):
         """
         Update router status.  Don't call unless you really need to because
-        there's not much of interest here.  Defaults to all.
+        there's not much of interest here.  Default household used if not
+        specified.
 
         To minimise API traffic, please specify a household ID if you can.
         """
@@ -357,8 +352,8 @@ class SurePetFlapAPI(object):
 
     def update_house_timeline(self, hid = None):
         """
-        Update household event timeline (via transient cache) and curfew lock
-        status.  Defaults to all.
+        Update household event timeline and curfew lock status.  Default
+        household used if not specified.
 
         To minimise API traffic, please specify a household ID if you can.
         """
@@ -380,7 +375,7 @@ class SurePetFlapAPI(object):
 
     def update_pet_status(self, hid = None):
         """
-        Update pet status via transient cache.  Defaults to all households.
+        Update pet timeline.  Default household used if not specified.
 
         To minimise API traffic, please specify a household ID if you can.
         """
