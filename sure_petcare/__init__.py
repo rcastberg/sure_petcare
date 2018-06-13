@@ -63,10 +63,20 @@ class SurePetFlapAPI(object):
     below.
     """
 
-    def __init__(self, email_address=None, password=None, device_id=None, cache=None, debug=False):
+    def __init__(self, email_address=None, password=None, household_id=None, device_id=None, cache=None, debug=False):
         """
         `email_address` and `password` are self explanatory.  They are
         mandatory if a populated `cache` object is not supplied.
+
+        `household_id` need only be specified if your account has access to more
+        than one household and you know its ID.  You can find out which is which
+        by examining property `households`.
+
+        You can set the default household after the fact by assigning the
+        appropriate ID to property `default_household` if the initial default
+        is not to your liking.  This assignment will persist in the cache, so
+        you only need do it the once.  Do not set it to None or you will get
+        exceptions.
 
         `device_id` is the ID of *this* client.  If none supplied, a plausible,
         unique-ish default is supplied.
@@ -97,7 +107,7 @@ class SurePetFlapAPI(object):
         if cache is None:
             self.cache = {'AuthToken': None,
                           'households': None,
-                          'default_household': None,
+                          'default_household': household_id,
                           'router_status': {}, # indexed by household
                           'flap_status': {}, # indexed by household
                           'pet_status': {}, # indexed by household
@@ -122,9 +132,24 @@ class SurePetFlapAPI(object):
     @default_household.setter
     def default_household( self, id ):
         """
-        Set the default household.
+        Set the default household ID.
         """
         self.cache['default_household'] = id
+    @property
+    def households( self ):
+        """
+        Return dict of households which include name, timezone information
+        suitable for use with pytz and also pet info.
+
+        NB: Indexed by household ID.
+        """
+        return self.cache['households']
+    @households.setter
+    def households( self, data ):
+        """
+        Set household data.
+        """
+        self.cache['households'] = data
     @property
     def router_status( self ):
         return self.cache['router_status']
@@ -148,37 +173,30 @@ class SurePetFlapAPI(object):
         """
         Set the default router ID.
         """
-        return self.cache['households'][hid]['default_router']
+        return self.households[hid]['default_router']
     def set_default_router( self, hid, rid ):
         """
         Get the default router ID.
         """
-        self.cache['households'][hid]['default_router'] = rid
+        self.households[hid]['default_router'] = rid
 
     def get_default_flap( self, hid ):
         """
         Get the default flap ID.
         """
-        return self.cache['households'][hid]['default_flap']
+        return self.households[hid]['default_flap']
     def set_default_flap( self, hid, fid ):
         """
         Set the default flap ID.
         """
-        self.cache['households'][hid]['default_flap'] = fid
-
-    def get_households( self ):
-        """
-        Return dict of households which include name and timezone information
-        suitable for use with pytz.
-        """
-        return self.cache['households']
+        self.households[hid]['default_flap'] = fid
 
     def get_pets( self, hid = None ):
         """
         Return dict of pets.  Default household used if not specified.
         """
         hid = hid or self.default_household
-        return self.cache['households'][hid]['pets']
+        return self.households[hid]['pets']
 
     def get_pet_id_by_name(self, name, household_id = None):
         """
@@ -187,7 +205,7 @@ class SurePetFlapAPI(object):
         Default household used if not specified.
         """
         household_id = household_id or self.default_household
-        for petid, petdata in self.cache['households'][household_id]['pets'].items():
+        for petid, petdata in self.households[household_id]['pets'].items():
             if petdata['name'].lower() == name.lower():
                 return petid
 
@@ -197,7 +215,7 @@ class SurePetFlapAPI(object):
         and flap used if not specified.
         """
         household_id = household_id or self.default_household
-        household = self.cache['households'][household_id]
+        household = self.households[household_id]
         if flap_id is None:
             flap_id = household['default_flap']
         mode = self.flap_status[household_id][flap_id]['locking']['mode']
@@ -259,7 +277,7 @@ class SurePetFlapAPI(object):
         """
         Update cache with info about the household(s) associated with the account.
         """
-        if self.cache['households'] is not None and not force:
+        if self.households is not None and not force:
             return
         params = ( # XXX Could we merge update_households() with update_pet_info()?
             ('with[]', ['household', 'timezone',],), #'pet',
@@ -267,7 +285,7 @@ class SurePetFlapAPI(object):
         headers=self._create_header()
         response_household = self._api_get(_URL_HOUSEHOLD, headers=headers, params=params)
         response_household = response_household.json()
-        self.cache['households'] = {
+        self.households = {
             x['id']: {'name': x['name'],
                       'olson_tz': x['timezone']['timezone'],
                       'utc_offset':  x['timezone']['utc_offset'],
@@ -275,138 +293,127 @@ class SurePetFlapAPI(object):
                       'default_flap': None,
                       } for x in response_household['data']
             }
-        self.default_household = response_household['data'][0]['id']
+        # default_household may have been set by the constructor, but override
+        # it anyway if the specified ID wasn't in the data just fetched.
+        if self.default_household not in self.households:
+            self.default_household = response_household['data'][0]['id']
 
-    def update_device_ids(self, force = False):
+    def update_device_ids(self, hid = None, force = False):
         """
         Update cache with list of router and flap IDs for each household.  The
         default router and flap are set to the first ones found.
         """
-        household = self.cache['households'][self.default_household]
+        hid = hid or self.default_household
+        household = self.households[hid]
         if (household['default_router'] is not None and
             household['default_flap'] is not None and not force):
             return
         params = (
             ('with[]', 'children'),
         )
-        for hid in self.cache['households']:
-            routers = self.cache['households'][hid]['routers'] = []
-            flaps = self.cache['households'][hid]['flaps'] = []
-            url = '%s/%s/device' % (_URL_HOUSEHOLD, hid,)
-            response_children = self._get_data(url, params)
-            for device in response_children['data']:
-                if device['product_id'] == PROD_ID.FLAP: # Catflap
-                    flaps.append( device['id'] )
-                elif device['product_id'] == PROD_ID.ROUTER: # Router
-                    routers.append( device['id'] )
-            self.cache['households'][hid]['default_flap'] = flaps[0]
-            self.cache['households'][hid]['default_router'] = routers[0]
+        routers = household['routers'] = []
+        flaps = household['flaps'] = []
+        url = '%s/%s/device' % (_URL_HOUSEHOLD, hid,)
+        response_children = self._get_data(url, params)
+        for device in response_children['data']:
+            if device['product_id'] == PROD_ID.FLAP: # Catflap
+                flaps.append( device['id'] )
+            elif device['product_id'] == PROD_ID.ROUTER: # Router
+                routers.append( device['id'] )
+        household['default_flap'] = flaps[0]
+        household['default_router'] = routers[0]
 
-    def update_pet_info(self, force = False):
+    def update_pet_info(self, hid = None, force = False):
         """
         Update cache with pet information.
         """
-        if self.cache['households'].get('pets') is not None and not force:
+        hid = hid or self.default_household
+        household = self.households[hid]
+        if household.get('pets') is not None and not force:
             return
         params = (
             ('with[]', ['photo', 'tag']),
         )
-        for hid in self.cache['households']:
-            url = '%s/%s/pet' % (_URL_HOUSEHOLD, hid,)
-            response_pets = self._get_data(url, params)
-            self.cache['households'][hid]['pets'] = {
-                x['id']: {'name': x['name'],
-                          'tag_id': x['tag_id'],
-                          'photo': x.get('photo', {}).get('location')
-                          } for x in response_pets['data']
-                }
+        url = '%s/%s/pet' % (_URL_HOUSEHOLD, hid,)
+        response_pets = self._get_data(url, params)
+        household['pets'] = {
+            x['id']: {'name': x['name'],
+                      'tag_id': x['tag_id'],
+                      'photo': x.get('photo', {}).get('location')
+                      } for x in response_pets['data']
+            }
 
     def update_flap_status(self, hid = None):
         """
         Update flap status.  Default household used if not specified.
-
-        To minimise API traffic, please specify a household ID if you can.
         """
-        hids = hid and [hid] or self.cache['households'].keys()
-        for hid in hids:
-            household = self.cache['households'][hid]
-            for fid in household['flaps']:
-                url = '%s/%s/status' % (_URL_DEV, fid,)
-                response = self._get_data(url)
-                self.cache['flap_status'].setdefault( hid, {} )[fid] = response['data']
+        hid = hid or self.default_household
+        household = self.households[hid]
+        for fid in household['flaps']:
+            url = '%s/%s/status' % (_URL_DEV, fid,)
+            response = self._get_data(url)
+            self.cache['flap_status'].setdefault( hid, {} )[fid] = response['data']
 
     def update_router_status(self, hid = None):
         """
         Update router status.  Don't call unless you really need to because
         there's not much of interest here.  Default household used if not
         specified.
-
-        To minimise API traffic, please specify a household ID if you can.
         """
-        hids = hid and [hid] or self.cache['households'].keys()
-        for hid in hids:
-            household = self.cache['households'][hid]
-            for rid in household['routers']:
-                url = '%s/%s/status' % (_URL_DEV, rid,)
-                response = self._get_data(url)
-                self.cache['router_status'].setdefault( hid, {} )[rid] = response['data']
+        hid = hid or self.default_household
+        household = self.households[hid]
+        for rid in household['routers']:
+            url = '%s/%s/status' % (_URL_DEV, rid,)
+            response = self._get_data(url)
+            self.cache['router_status'].setdefault( hid, {} )[rid] = response['data']
 
     def update_house_timeline(self, hid = None):
         """
         Update household event timeline and curfew lock status.  Default
         household used if not specified.
-
-        To minimise API traffic, please specify a household ID if you can.
         """
-        hids = hid and [hid] or self.cache['households'].keys()
-        for hid in hids:
-            params = (
-                ('type', '0,3,6,7,12,13,14,17,19,20'),
-            )
-            url = '%s/household/%s' % (_URL_TIMELINE, hid,)
-            response = self._get_data(url, params)
-            htl = self.cache['house_timeline'][hid] = response['data']
-            curfew_events = [x for x in htl if x['type'] == EVT.CURFEW]
-            if curfew_events:
-                # Serialised JSON within a serialised JSON structure?!  Weird.
-                self.cache['curfew_locked'][hid] = json.loads(curfew_events[0]['data'])['locked']
-            else:
-                # new accounts might not be populated with the relevent information
-                self.cache['curfew_locked'][hid] = None
+        hid = hid or self.default_household
+        params = (
+            ('type', '0,3,6,7,12,13,14,17,19,20'),
+        )
+        url = '%s/household/%s' % (_URL_TIMELINE, hid,)
+        response = self._get_data(url, params)
+        htl = self.cache['house_timeline'][hid] = response['data']
+        curfew_events = [x for x in htl if x['type'] == EVT.CURFEW]
+        if curfew_events:
+            # Serialised JSON within a serialised JSON structure?!  Weird.
+            self.cache['curfew_locked'][hid] = json.loads(curfew_events[0]['data'])['locked']
+        else:
+            # new accounts might not be populated with the relevent information
+            self.cache['curfew_locked'][hid] = None
 
     def update_pet_status(self, hid = None):
         """
         Update pet status.  Default household used if not specified.
-
-        To minimise API traffic, please specify a household ID if you can.
         """
-        hids = hid and [hid] or self.cache['households'].keys()
-        for hid in hids:
-            self.cache['pet_status'][hid] = {}
-            for pid in self.get_pets( hid ):
-                url = '%s/%s/position' % (_URL_PET, pid,)
-                headers = self._create_header()
-                response = self._get_data(url)
-                self.cache['pet_status'][hid][pid] = response['data']
+        hid = hid or self.default_household
+        self.cache['pet_status'][hid] = {}
+        for pid in self.get_pets( hid ):
+            url = '%s/%s/position' % (_URL_PET, pid,)
+            headers = self._create_header()
+            response = self._get_data(url)
+            self.cache['pet_status'][hid][pid] = response['data']
 
     def update_pet_timeline(self, hid = None):
         """
         Update pet timeline.  Default household used if not specified.
-
-        To minimise API traffic, please specify a household ID if you can.
         """
-        hids = hid and [hid] or self.cache['households'].keys()
-        for hid in hids:
-            household = self.cache['households'][hid]
-            params = (
-                ('type', '0,3,6,7,12,13,14,17,19,20'),
-            )
-            petdata={}
-            for pid in household['pets']:
-                url = '%s/pet/%s/%s' % (_URL_TIMELINE, pid, hid,)
-                response = self._get_data(url, params=params)
-                petdata[pid] = response['data']
-            self.cache['pet_timeline'][hid] = petdata
+        hid = hid or self.default_household
+        household = self.households[hid]
+        params = (
+            ('type', '0,3,6,7,12,13,14,17,19,20'),
+        )
+        petdata={}
+        for pid in household['pets']:
+            url = '%s/pet/%s/%s' % (_URL_TIMELINE, pid, hid,)
+            response = self._get_data(url, params=params)
+            petdata[pid] = response['data']
+        self.cache['pet_timeline'][hid] = petdata
 
     def _get_data(self, url, params=None, refresh_interval=3600):
         headers = None
@@ -489,7 +496,7 @@ class SurePetFlapMixin( object ):
         direction.  Default household is used if not specified.
         """
         household_id = household_id or self.default_household
-        household = self.cache['households'][household_id]
+        household = self.households[household_id]
         try:
             tag_id = household['pets'][pet_id]['tag_id']
             pet_name = household['pets'][pet_id]['name']
@@ -517,7 +524,7 @@ class SurePetFlapMixin( object ):
         if not specified.
         """
         household_id = household_id or self.default_household
-        household = self.cache['households'][household_id]
+        household = self.households[household_id]
         if flap_id is None:
             flap_id = household['default_flap']
         lock = self.flap_status[household_id][flap_id]['locking']['mode']
