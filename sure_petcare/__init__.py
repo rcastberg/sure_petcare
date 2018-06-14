@@ -430,10 +430,9 @@ class SurePetFlapAPI(object):
         if headers is None:
             headers = self._create_header()
         response = self._api_get(url, headers=headers, params=params)
-        if response.status_code in [304, 500, 502, 503,]:
+        if response.status_code in [304, 500, 502, 503, 504,]:
             # Used cached data in event of (respectively), not modified, server
-            # error, server overload and gateway timeout
-            #print('Got a 304')
+            # error, server overload, server unavailable and gateway timeout
             return self.cache[url]['LastData']
         self.cache[url]['LastData'] = response.json()
         self.cache[url]['ETag'] = response.headers['ETag'][1:-1]
