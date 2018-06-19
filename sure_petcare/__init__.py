@@ -16,6 +16,7 @@ INOUT_STATUS = {1 : 'Inside', 2 : 'Outside'}
 EVT = mk_enum( 'EVT',
                {'MOVE': 0,
                 'MOVE_UID': 7, # movement of unknown animal
+                'BAT_WARN': 1,
                 'LOCK_ST': 6,
                 'USR_IFO': 12,
                 'USR_NEW': 17,
@@ -504,7 +505,7 @@ class SurePetFlapMixin( object ):
         petdata = self.pet_timeline[household_id][pet_id]
 
         for movement in petdata:
-            if movement['type'] in [EVT.MOVE_UID, EVT.LOCK_ST, EVT.USR_IFO, EVT.USR_NEW, EVT.CURFEW]:
+            if movement['type'] in [EVT.MOVE_UID, EVT.LOCK_ST, EVT.USR_IFO, EVT.USR_NEW, EVT.CURFEW, EVT.BAT_WARN,]:
                 continue
             try:
                 if entry_type is not None:
@@ -572,7 +573,7 @@ class SurePetFlapMixin( object ):
         if petid is None:
             petid = self.get_pet_id_by_name(name)
         petid=int(petid)
-        loc = get_pet_location( pet_id, household_id )
+        loc = self.get_pet_location( petid, household_id )
         if loc == LOC.UNKNOWN:
             return 'Unknown'
         else:
