@@ -97,21 +97,25 @@ class SurePetFlapAPI(object):
         In order to ensure that the cache is written back to disc, instances of
         this class must be used as a context manager.  Any API call that could
         change cache state *can only* be called from within a context block.
-        For example:
-
-        ```
-        with SurePetFlap() as api:
-            api.update_pet_status()
-            for pid, info in api.get_pets():
-                print( '%s is %s' % (info['name'], api.get_pet_location(pid),) )
-        ```
 
         The cache is written out at the end of the context block.  You can
         continue to query the API outside of the context block, but any attempt
         to update or modify anything will result in exception SPAPIReadOnly.
+
+        Example:
+        ```
+        with SurePetFlap() as api:
+            api.update_pet_status()
+        for pid, info in api.get_pets():
+            print( '%s is %s' % (info['name'], api.get_pet_location(pid),) )
+        ```
+
+        Note that the disc copy of the cache is locked while in context, so
+        update what you need and leave context as soon as possible.
         """
         # cache_status is None to indicate that it hasn't been initialised
         self.cache_file = cache_file
+        self.cache_lockfile = cache_file + '.lock'
         # Must store household_id because _load_cache() gets called by
         # __enter__()
         self._init_default_household = household_id
@@ -143,7 +147,7 @@ class SurePetFlapAPI(object):
         Read cache file.  The cache is written by the context `__exit__()`
         method.
         """
-        # Initialise a base cache as a fall-back
+        # Cache locking is done by the context manager methods.
         try:
             with open( self.cache_file, 'rb' ) as f:
                 self.cache = pickle.load( f )
@@ -158,10 +162,25 @@ class SurePetFlapAPI(object):
                           'house_timeline': {}, # indexed by household
                           'curfew_locked': {}, # indexed by household
                           }
+
     def __enter__( self ):
         """
         Entering context unlocks the cache for modification and update.
         """
+        if os.path.exists( self.cache_lockfile ):
+            raise SPAPICacheLocked()
+        else:
+            # Yeah, there are better ways of doing this, but I don't want to
+            # add to the API's dependencies for the sake of compatibility.
+            with open( self.cache_lockfile, 'w' ) as lf:
+                # Conveniently, this also tests that the cache file location
+                # is writeable.
+                lf.write( str(os.getpid()) )
+            # Check to make sure that we didn't get gazumped
+            with open( self.cache_lockfile, 'r' ) as lf:
+                if int(lf.read()) != os.getpid():
+                    raise SPAPICacheLocked()
+            # We've got a solid lock.  Hopefully.
         self._load_cache()
         self.__read_only = False
         return self
@@ -174,6 +193,7 @@ class SurePetFlapAPI(object):
         self.__read_only = True
         with open( self.cache_file, 'wb' ) as f:
             pickle.dump( self.cache, f )
+        os.remove( self.cache_lockfile )
 
     @property
     def default_household( self ):
@@ -679,6 +699,10 @@ class SPAPIException( Exception ):
 
 
 class SPAPIReadOnly( SPAPIException ):
+    pass
+
+
+class SPAPICacheLocked( SPAPIException ):
     pass
 
 
