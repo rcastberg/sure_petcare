@@ -533,6 +533,8 @@ class SurePetFlapAPI(object):
                 # server error, server overload, server unavailable and gateway
                 # timeout.  Doesn't cope with such events absent cached data,
                 # but hopefully that is sufficiently rare not to bother with.
+                if response.status_code == 404:
+                    raise IndexError( url )
                 if response.status_code == 304:
                     # Can only get here if there is a cached response
                     self.cache[url]['ts'] = datetime.now()
