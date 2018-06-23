@@ -59,6 +59,8 @@ _URL_PET = 'https://app.api.surehub.io/api/pet'
 
 API_USER_AGENT = 'Mozilla/5.0 (Linux; Android 7.0; SM-G930F Build/NRD90M; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/64.0.3282.137 Mobile Safari/537.36'
 
+_HARD_RATE_LIMIT = 60
+
 
 class SurePetFlapAPI(object):
     """Class to take care of network communication with SurePet's products.
@@ -513,30 +515,33 @@ class SurePetFlapAPI(object):
             petdata[pid] = response['data']
         self.cache['pet_timeline'][hid] = petdata
 
-    def _get_data(self, url, params=None, refresh_interval=3600):
+    def _get_data(self, url, params=None):
         if self.__read_only:
             raise SPAPIReadOnly()
         headers = None
         if url in self.cache:
             time_since_last =  datetime.now() - self.cache[url]['ts']
-            if time_since_last.total_seconds() < refresh_interval:
-                # Use cached data but check freshness with ETag
+            # Return cached data unless older than hard rate limit
+            if time_since_last.total_seconds() > _HARD_RATE_LIMIT:
                 headers = self._create_header(ETag=self.cache[url]['ETag'])
-            else:
-                # Ignore cached data and force refresh
-                self._debug_print('Forcing refresh of data for %s' % (url,))
         else:
-            self.cache[url]={}
-        if headers is None:
             headers = self._create_header()
-        response = self._api_get(url, headers=headers, params=params)
-        if response.status_code in [304, 500, 502, 503, 504,]:
-            # Used cached data in event of (respectively), not modified, server
-            # error, server overload, server unavailable and gateway timeout
-            return self.cache[url]['LastData']
-        self.cache[url]['LastData'] = response.json()
-        self.cache[url]['ETag'] = response.headers['ETag'][1:-1]
-        self.cache[url]['ts'] = datetime.now()
+        if headers is not None:
+            response = self._api_get(url, headers=headers, params=params)
+            if response.status_code in [304, 500, 502, 503, 504,]:
+                # Used cached data in event of (respectively), not modified,
+                # server error, server overload, server unavailable and gateway
+                # timeout.  Doesn't cope with such events absent cached data,
+                # but hopefully that is sufficiently rare not to bother with.
+                if response.status_code == 304:
+                    # Can only get here if there is a cached response
+                    self.cache[url]['ts'] = datetime.now()
+                return self.cache[url]['LastData']
+            self.cache[url] = {
+                'LastData': response.json(),
+                'ETag': response.headers['ETag'].strip( '"' ),
+                'ts': datetime.now(),
+                }
         return self.cache[url]['LastData']
 
     def _create_header(self, ETag=None):
@@ -568,10 +573,6 @@ class SurePetFlapAPI(object):
             else:
                 raise SPAPIException( 'Auth required but not present in header' )
         return r
-
-    def _debug_print(self, string):
-        if self.debug:
-            print(string)
 
     def _log_req( self, r, *args, **kwargs ):
         """
