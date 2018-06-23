@@ -4,10 +4,14 @@ Access the sure petcare access information
 """
 
 import json
+import os
+import pickle
 import requests
 from datetime import datetime, timedelta
 import sure_petcare.utils as utils
 from .utils import mk_enum
+
+CACHE_FILE = os.path.expanduser( '~/.surepet.cache' )
 
 DIRECTION ={0:'Looked through',1:'Entered House',2:'Left House'}
 INOUT_STATUS = {1 : 'Inside', 2 : 'Outside'}
@@ -64,10 +68,11 @@ class SurePetFlapAPI(object):
     below.
     """
 
-    def __init__(self, email_address=None, password=None, household_id=None, device_id=None, cache=None, debug=False):
+    def __init__(self, email_address=None, password=None, household_id=None, device_id=None, cache_file=CACHE_FILE, debug=False):
         """
-        `email_address` and `password` are self explanatory.  They are
-        mandatory if a populated `cache` object is not supplied.
+        `email_address` and `password` are self explanatory.  They are cached on
+        disc file `cache_file` and are therefore only mandatory on first
+        invocation (or if either have been changed).
 
         `household_id` need only be specified if your account has access to more
         than one household and you know its ID.  You can find out which is which
@@ -82,21 +87,39 @@ class SurePetFlapAPI(object):
         `device_id` is the ID of *this* client.  If none supplied, a plausible,
         unique-ish default is supplied.
 
-        `cache` is the persistent object cache that allows subsequent instances
-        function with minimal, if any, additional Sure server API calls.
+        Cache
+        -----
 
-        You *should* always preserve the cache and pass it back to new
-        instances whereever possible.  Amongst performance and cost benefits,
-        it also means you don't need to supply your email and password again
-        unless they change.
+        This API makes aggressive use of caching.  This is not optional
+        because use of this API must never be responsible for more impact on
+        Sure's servers than the official app.
 
-        Unless supplied with a populated `cache` object, the new instance
-        remains unpopulated (and unusable) until method `update()` has been
-        called.
+        In order to ensure that the cache is written back to disc, instances of
+        this class must be used as a context manager.  Any API call that could
+        change cache state *can only* be called from within a context block.
+        For example:
+
+        ```
+        with SurePetFlap() as api:
+            api.update_pet_status()
+            for pid, info in api.get_pets():
+                print( '%s is %s' % (info['name'], api.get_pet_location(pid),) )
+        ```
+
+        The cache is written out at the end of the context block.  You can
+        continue to query the API outside of the context block, but any attempt
+        to update or modify anything will result in exception SPAPIReadOnly.
         """
-        if (email_address is None or password is None) and cache is None:
-            raise ValueError('Please provide, email, password and device id')
-        self.debug=debug
+        # cache_status is None to indicate that it hasn't been initialised
+        self.cache_file = cache_file
+        # Must store household_id because _load_cache() gets called by
+        # __enter__()
+        self._init_default_household = household_id
+        self._load_cache()
+        self.__read_only = True
+        if (email_address is None or password is None) and self.cache['AuthToken'] is None:
+            raise ValueError('No cached credentials and none provided')
+        self.debug = debug
         self.s = requests.session()
         if debug:
             self.req_count = self.req_rx_bytes = 0
@@ -105,10 +128,29 @@ class SurePetFlapAPI(object):
             self.device_id = utils.gen_device_id()
         else:
             self.device_id = device_id
-        if cache is None:
+        # Always override email/pw, if supplied.  NB: they are not committed
+        # to disc unless and until the context manager is invoked on the grounds
+        # that they count for nothing unless the `AuthToken` is also updated,
+        # and that only happens on a 401 which requires the context to have
+        # been invoked.
+        if email_address:
+            self.cache['email'] = email_address
+        if password:
+            self.cache['pw'] = password
+
+    def _load_cache( self ):
+        """
+        Read cache file.  The cache is written by the context `__exit__()`
+        method.
+        """
+        # Initialise a base cache as a fall-back
+        try:
+            with open( self.cache_file, 'rb' ) as f:
+                self.cache = pickle.load( f )
+        except pickle.PickleError: # let file errors pass to caller
             self.cache = {'AuthToken': None,
                           'households': None,
-                          'default_household': household_id,
+                          'default_household': self._init_default_household,
                           'router_status': {}, # indexed by household
                           'flap_status': {}, # indexed by household
                           'pet_status': {}, # indexed by household
@@ -116,13 +158,22 @@ class SurePetFlapAPI(object):
                           'house_timeline': {}, # indexed by household
                           'curfew_locked': {}, # indexed by household
                           }
-        else:
-            self.cache = cache
-        # Always override email/pw, if supplied
-        if email_address:
-            self.cache['email'] = email_address
-        if password:
-            self.cache['pw'] = password
+    def __enter__( self ):
+        """
+        Entering context unlocks the cache for modification and update.
+        """
+        self._load_cache()
+        self.__read_only = False
+        return self
+
+    def __exit__( self, exc_type, exc_value, traceback ):
+        """
+        Exiting context locks the cache to prevent further modification and
+        also flushes the cache to disc.
+        """
+        self.__read_only = True
+        with open( self.cache_file, 'wb' ) as f:
+            pickle.dump( self.cache, f )
 
     @property
     def default_household( self ):
@@ -135,6 +186,8 @@ class SurePetFlapAPI(object):
         """
         Set the default household ID.
         """
+        if self.__read_only:
+            raise SPAPIReadOnly()
         self.cache['default_household'] = id
     @property
     def households( self ):
@@ -150,6 +203,8 @@ class SurePetFlapAPI(object):
         """
         Set household data.
         """
+        if self.__read_only:
+            raise SPAPIReadOnly()
         self.cache['households'] = data
     @property
     def router_status( self ):
@@ -179,6 +234,8 @@ class SurePetFlapAPI(object):
         """
         Get the default router ID.
         """
+        if self.__read_only:
+            raise SPAPIReadOnly()
         self.households[hid]['default_router'] = rid
 
     def get_default_flap( self, hid ):
@@ -190,6 +247,8 @@ class SurePetFlapAPI(object):
         """
         Set the default flap ID.
         """
+        if self.__read_only:
+            raise SPAPIReadOnly()
         self.households[hid]['default_flap'] = fid
 
     def get_pets( self, hid = None ):
@@ -241,8 +300,8 @@ class SurePetFlapAPI(object):
 
     def update(self):
         """
-        Update everything.  MUST be invoked immediately after instance creation
-        unless cache was supplied.
+        Update everything.  Must be invoked once, but please, only once.  Call
+        the individual update methods according to your applications needs.
         """
         self.update_authtoken()
         self.update_households()
@@ -261,6 +320,8 @@ class SurePetFlapAPI(object):
         Update cache with authentication token if missing.  Use `force = True`
         when the token expires (the API generally does this automatically).
         """
+        if self.__read_only:
+            raise SPAPIReadOnly()
         if self.cache['AuthToken'] is not None and not force:
             return
         data = {"email_address": self.cache['email'],
@@ -278,6 +339,8 @@ class SurePetFlapAPI(object):
         """
         Update cache with info about the household(s) associated with the account.
         """
+        if self.__read_only:
+            raise SPAPIReadOnly()
         if self.households is not None and not force:
             return
         params = ( # XXX Could we merge update_households() with update_pet_info()?
@@ -304,6 +367,8 @@ class SurePetFlapAPI(object):
         Update cache with list of router and flap IDs for each household.  The
         default router and flap are set to the first ones found.
         """
+        if self.__read_only:
+            raise SPAPIReadOnly()
         hid = hid or self.default_household
         household = self.households[hid]
         if (household['default_router'] is not None and
@@ -328,6 +393,8 @@ class SurePetFlapAPI(object):
         """
         Update cache with pet information.
         """
+        if self.__read_only:
+            raise SPAPIReadOnly()
         hid = hid or self.default_household
         household = self.households[hid]
         if household.get('pets') is not None and not force:
@@ -348,6 +415,8 @@ class SurePetFlapAPI(object):
         """
         Update flap status.  Default household used if not specified.
         """
+        if self.__read_only:
+            raise SPAPIReadOnly()
         hid = hid or self.default_household
         household = self.households[hid]
         for fid in household['flaps']:
@@ -361,6 +430,8 @@ class SurePetFlapAPI(object):
         there's not much of interest here.  Default household used if not
         specified.
         """
+        if self.__read_only:
+            raise SPAPIReadOnly()
         hid = hid or self.default_household
         household = self.households[hid]
         for rid in household['routers']:
@@ -373,6 +444,8 @@ class SurePetFlapAPI(object):
         Update household event timeline and curfew lock status.  Default
         household used if not specified.
         """
+        if self.__read_only:
+            raise SPAPIReadOnly()
         hid = hid or self.default_household
         params = (
             ('type', '0,3,6,7,12,13,14,17,19,20'),
@@ -392,6 +465,8 @@ class SurePetFlapAPI(object):
         """
         Update pet status.  Default household used if not specified.
         """
+        if self.__read_only:
+            raise SPAPIReadOnly()
         hid = hid or self.default_household
         self.cache['pet_status'][hid] = {}
         for pid in self.get_pets( hid ):
@@ -404,6 +479,8 @@ class SurePetFlapAPI(object):
         """
         Update pet timeline.  Default household used if not specified.
         """
+        if self.__read_only:
+            raise SPAPIReadOnly()
         hid = hid or self.default_household
         household = self.households[hid]
         params = (
@@ -417,6 +494,8 @@ class SurePetFlapAPI(object):
         self.cache['pet_timeline'][hid] = petdata
 
     def _get_data(self, url, params=None, refresh_interval=3600):
+        if self.__read_only:
+            raise SPAPIReadOnly()
         headers = None
         if url in self.cache:
             time_since_last =  datetime.now() - self.cache[url]['ts']
@@ -596,6 +675,10 @@ class SurePetFlap(SurePetFlapMixin, SurePetFlapAPI):
 
 
 class SPAPIException( Exception ):
+    pass
+
+
+class SPAPIReadOnly( SPAPIException ):
     pass
 
 
