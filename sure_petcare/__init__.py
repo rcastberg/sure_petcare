@@ -116,8 +116,8 @@ class SurePetFlapAPI(object):
         update what you need and leave context as soon as possible.
         """
         # cache_status is None to indicate that it hasn't been initialised
-        self.cache_file = cache_file
-        self.cache_lockfile = cache_file + '.lock'
+        self.cache_file = cache_file or CACHE_FILE
+        self.cache_lockfile = self.cache_file + '.lock'
         # Must store household_id because _load_cache() gets called by
         # __enter__()
         self._init_default_household = household_id
@@ -612,7 +612,7 @@ class SurePetFlapAPI(object):
         try:
             with open( self.cache_file, 'rb' ) as f:
                 self.cache = pickle.load( f )
-        except pickle.PickleError: # let file errors pass to caller
+        except (pickle.PickleError, OSError,):
             self.cache = {'AuthToken': None,
                           'households': None,
                           'default_household': self._init_default_household,
