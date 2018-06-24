@@ -247,11 +247,11 @@ class SurePetFlapAPI(object):
         "Returns the default router ID for the default household"
         return self.get_default_router()
     def get_default_router( self, household_id = None ):
-        "Set the default router ID."
+        "Get the default router ID."
         household_id = household_id or self.default_household
         return self.households[household_id]['default_router']
     def set_default_router( self, household_id, rid ):
-        "Get the default router ID."
+        "Set the default router ID."
         if self.__read_only:
             raise SPAPIReadOnly()
         self.households[household_id]['default_router'] = rid
@@ -293,6 +293,10 @@ class SurePetFlapAPI(object):
 
     @property
     def router_status( self ):
+        "Dict of all routers in default household"
+        return self.all_router_status[self.default_household]
+    @property
+    def all_router_status( self, household_id = None ):
         "Dict of all routers indexed by household and router IDs"
         return self.cache['router_status']
     @property
