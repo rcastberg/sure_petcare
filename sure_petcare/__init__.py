@@ -417,17 +417,17 @@ class SurePetFlapAPI(object):
         params = (
             ('with[]', 'children'),
         )
-        routers = household['routers'] = []
-        flaps = household['flaps'] = []
+        routers = household['routers'] = {}
+        flaps = household['flaps'] = {}
         url = '%s/%s/device' % (_URL_HOUSEHOLD, household_id,)
         response_children = self._get_data(url, params)
         for device in response_children['data']:
             if device['product_id'] == PROD_ID.FLAP: # Catflap
-                flaps.append( device['id'] )
+                flaps[device['id']] = device['name']
             elif device['product_id'] == PROD_ID.ROUTER: # Router
-                routers.append( device['id'] )
-        household['default_flap'] = flaps[0]
-        household['default_router'] = routers[0]
+                routers[device['id']] = device['name']
+        household['default_flap'] = list(flaps.keys())[0]
+        household['default_router'] = list(routers.keys())[0]
 
     def update_pet_info( self, household_id = None, force = False ):
         """
