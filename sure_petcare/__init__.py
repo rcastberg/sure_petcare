@@ -118,9 +118,9 @@ class SurePetFlapAPI(object):
         # cache_status is None to indicate that it hasn't been initialised
         self.cache_file = cache_file or CACHE_FILE
         self.cache_lockfile = self.cache_file + '.lock'
-        # Must store household_id because _load_cache() gets called by
-        # __enter__()
         self._init_default_household = household_id
+        self._init_email = email_address
+        self._init_pw = password
         self._load_cache()
         self.__read_only = True
         if (email_address is None or password is None) and self.cache['AuthToken'] is None:
@@ -134,15 +134,6 @@ class SurePetFlapAPI(object):
             self.device_id = utils.gen_device_id()
         else:
             self.device_id = device_id
-        # Always override email/pw, if supplied.  NB: they are not committed
-        # to disc unless and until the context manager is invoked on the grounds
-        # that they count for nothing unless the `AuthToken` is also updated,
-        # and that only happens on a 401 which requires the context to have
-        # been invoked.
-        if email_address:
-            self.cache['email'] = email_address
-        if password:
-            self.cache['pw'] = password
 
     #
     # Query methods (with helper properties that use defaults where possible)
@@ -362,8 +353,9 @@ class SurePetFlapAPI(object):
             raise SPAPIReadOnly()
         if self.cache['AuthToken'] is not None and not force:
             return
-        data = {"email_address": self.cache['email'],
-                "password": self.cache['pw'],
+        # Allow constructor to override email/pw should they change
+        data = {"email_address": self._init_email or self.cache['email'],
+                "password": self._init_pw or self.cache['pw'],
                 "device_id": self.device_id,
                 }
         headers=self._create_header()
