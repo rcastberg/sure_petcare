@@ -246,6 +246,11 @@ class SurePetFlapAPI(object):
     @property
     def curfew_locked( self ):
         return self.cache['curfew_locked']
+    @property
+    def cache_is_empty( self ):
+        return (self.cache['AuthToken'] is None or
+                self.households is None or
+                self.households[self.default_household].get('pets') is None)
 
     def get_default_router( self, hid ):
         """
@@ -278,7 +283,10 @@ class SurePetFlapAPI(object):
         Return dict of pets.  Default household used if not specified.
         """
         hid = hid or self.default_household
-        return self.households[hid]['pets']
+        try:
+            return self.households[hid]['pets']
+        except KeyError:
+            raise SPAPIUnitialised()
 
     def get_pet_id_by_name(self, name, household_id = None):
         """
@@ -287,7 +295,7 @@ class SurePetFlapAPI(object):
         Default household used if not specified.
         """
         household_id = household_id or self.default_household
-        for petid, petdata in self.households[household_id]['pets'].items():
+        for petid, petdata in self.get_pets( household_id ).items():
             if petdata['name'].lower() == name.lower():
                 return petid
 
@@ -528,7 +536,7 @@ class SurePetFlapAPI(object):
             headers = self._create_header()
         if headers is not None:
             response = self._api_get(url, headers=headers, params=params)
-            if response.status_code in [304, 500, 502, 503, 504,]:
+            if response.status_code in [304, 404, 500, 502, 503, 504,]:
                 # Used cached data in event of (respectively), not modified,
                 # server error, server overload, server unavailable and gateway
                 # timeout.  Doesn't cope with such events absent cached data,
@@ -710,6 +718,10 @@ class SPAPICacheLocked( SPAPIException ):
 
 
 class SPAPIAuthError( SPAPIException ):
+    pass
+
+
+class SPAPIUnitialised( SPAPIException ):
     pass
 
 
