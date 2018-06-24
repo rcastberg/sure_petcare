@@ -13,8 +13,8 @@ from .utils import mk_enum
 
 CACHE_FILE = os.path.expanduser( '~/.surepet.cache' )
 
-DIRECTION ={0:'looked through',1:'entered house',2:'left house'}
-INOUT_STATUS = {1 : 'inside', 2 : 'outside'}
+DIRECTION ={0:'Looked through',1:'Entered House',2:'Left House'}
+INOUT_STATUS = {1 : 'Inside', 2 : 'Outside'}
 
 # The following event types are known, eg EVT.CURFEW.
 EVT = mk_enum( 'EVT',
