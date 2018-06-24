@@ -13,8 +13,8 @@ from .utils import mk_enum
 
 CACHE_FILE = os.path.expanduser( '~/.surepet.cache' )
 
-DIRECTION ={0:'Looked through',1:'Entered House',2:'Left House'}
-INOUT_STATUS = {1 : 'Inside', 2 : 'Outside'}
+DIRECTION ={0:'looked through',1:'entered house',2:'left house'}
+INOUT_STATUS = {1 : 'inside', 2 : 'outside'}
 
 # The following event types are known, eg EVT.CURFEW.
 EVT = mk_enum( 'EVT',
@@ -215,15 +215,13 @@ class SurePetFlapAPI(object):
         household = self.households[household_id]
         if flap_id is None:
             flap_id = household['default_flap']
-        mode = self.all_flap_status[household_id][flap_id]['locking']['mode']
-        if mode == LK_MOD.CURFEW:
-            if self.curfew_locked[household_id] is None:
-                mode = LK_MOD.CURFEW_UNKNOWN
-            elif self.curfew_locked[household_id]:
-                mode = LK_MOD.CURFEW_LOCKED
+        lock_data = self.all_flap_status[household_id][flap_id]['locking']
+        if lock_data['mode'] == LK_MOD.CURFEW:
+            if lock_data['curfew']['locked']:
+                return LK_MOD.CURFEW_LOCKED
             else:
-                mode = LK_MOD.CURFEW_UNLOCKED
-        return mode
+                return LK_MOD.CURFEW_UNLOCKED
+        return lock_data['mode']
 
     #
     # Default household and device helpers
@@ -329,10 +327,6 @@ class SurePetFlapAPI(object):
     def all_house_timeline( self ):
         "Dict of household events indexed by household ID"
         return self.cache['house_timeline']
-    @property
-    def curfew_locked( self ):
-        "Dict of curfew lock status indexed by household ID"
-        return self.cache['curfew_locked']
 
     #
     # Update methods.  USE SPARINGLY!
@@ -492,14 +486,7 @@ class SurePetFlapAPI(object):
         )
         url = '%s/household/%s' % (_URL_TIMELINE, household_id,)
         response = self._get_data(url, params)
-        htl = self.cache['house_timeline'][household_id] = response['data']
-        curfew_events = [x for x in htl if x['type'] == EVT.CURFEW]
-        if curfew_events:
-            # Serialised JSON within a serialised JSON structure?!  Weird.
-            self.cache['curfew_locked'][household_id] = json.loads(curfew_events[0]['data'])['locked']
-        else:
-            # new accounts might not be populated with the relevent information
-            self.cache['curfew_locked'][household_id] = None
+        self.cache['house_timeline'][household_id] = response['data']
 
     def update_pet_status( self, household_id = None ):
         """
@@ -630,7 +617,6 @@ class SurePetFlapAPI(object):
                           'pet_status': {}, # indexed by household
                           'pet_timeline': {}, # indexed by household
                           'house_timeline': {}, # indexed by household
-                          'curfew_locked': {}, # indexed by household
                           'version': 1 # of cache structure.
                           }
 
@@ -713,16 +699,13 @@ class SurePetFlapMixin( object ):
         household = self.households[household_id]
         if flap_id is None:
             flap_id = household['default_flap']
-        lock = self.all_flap_status[household_id][flap_id]['locking']['mode']
-        if lock == LK_MOD.UNLOCKED:
+        lock_data = self.all_flap_status[household_id][flap_id]['locking']
+        if lock_data['mode'] == LK_MOD.UNLOCKED:
             return False
-        if lock in [LK_MOD.LOCKED_IN, LK_MOD.LOCKED_OUT, LK_MOD.LOCKED_ALL,]:
+        if lock_data['mode'] in [LK_MOD.LOCKED_IN, LK_MOD.LOCKED_OUT, LK_MOD.LOCKED_ALL,]:
             return True
-        if lock == LK_MOD.CURFEW:
-            if self.curfew_locked[household_id]:
-                return True
-            else:
-                return False
+        if lock_data['mode'] == LK_MOD.CURFEW:
+            return lock_data['curfew']['locked']
 
     def lock_mode( self, flap_id = None, household_id = None ):
         """
