@@ -170,7 +170,7 @@ class SurePetFlapAPI(object):
         household_id = household_id or self.default_household
         flap_id = flap_id or self.get_default_flap( household_id )
         try:
-            return self.flap_status[household_id][flap_id]['battery'] / 4.0
+            return self.all_flap_status[household_id][flap_id]['battery'] / 4.0
         except KeyError:
             raise SPAPIUnitialised()
 
@@ -202,9 +202,9 @@ class SurePetFlapAPI(object):
         Default household used if not specified.
         """
         household_id = household_id or self.default_household
-        if pet_id not in self.pet_status[household_id]:
+        if pet_id not in self.all_pet_status[household_id]:
             raise SPAPIUnknownPet()
-        return self.pet_status[household_id][pet_id]['where']
+        return self.all_pet_status[household_id][pet_id]['where']
 
     def get_lock_mode( self, flap_id = None, household_id = None ):
         """
@@ -215,7 +215,7 @@ class SurePetFlapAPI(object):
         household = self.households[household_id]
         if flap_id is None:
             flap_id = household['default_flap']
-        mode = self.flap_status[household_id][flap_id]['locking']['mode']
+        mode = self.all_flap_status[household_id][flap_id]['locking']['mode']
         if mode == LK_MOD.CURFEW:
             if self.curfew_locked[household_id] is None:
                 mode = LK_MOD.CURFEW_UNKNOWN
@@ -299,18 +299,34 @@ class SurePetFlapAPI(object):
         return self.cache['router_status']
     @property
     def flap_status( self ):
+        "Dict of all flaps for default household"
+        return self.all_flap_status[self.default_household]
+    @property
+    def all_flap_status( self ):
         "Dict of all flaps indexed by household and router IDs"
         return self.cache['flap_status']
     @property
     def pet_status( self ):
+        "Dict of all pets for default household"
+        return self.all_pet_status[self.default_household]
+    @property
+    def all_pet_status( self ):
         "Dict of all pets indexed by household and pet IDs"
         return self.cache['pet_status']
     @property
     def pet_timeline( self ):
+        "Pet events for default household"
+        return self.all_pet_timeline[self.default_household]
+    @property
+    def all_pet_timeline( self ):
         "Dict of pet events indexed by household ID"
         return self.cache['pet_timeline']
     @property
     def house_timeline( self ):
+        "Events for default household"
+        return self.all_house_timeline[self.default_household]
+    @property
+    def all_house_timeline( self ):
         "Dict of household events indexed by household ID"
         return self.cache['house_timeline']
     @property
@@ -672,7 +688,7 @@ class SurePetFlapMixin( object ):
             pet_name = self.household['pets'][pet_id]['name']
         except KeyError as e:
             raise SPAPIUnknownPet( str(e) )
-        petdata = self.pet_timeline[household_id][pet_id]
+        petdata = self.all_pet_timeline[household_id][pet_id]
 
         for movement in petdata:
             if movement['type'] in [EVT.MOVE_UID, EVT.LOCK_ST, EVT.USR_IFO, EVT.USR_NEW, EVT.CURFEW, EVT.BAT_WARN,]:
@@ -697,7 +713,7 @@ class SurePetFlapMixin( object ):
         household = self.households[household_id]
         if flap_id is None:
             flap_id = household['default_flap']
-        lock = self.flap_status[household_id][flap_id]['locking']['mode']
+        lock = self.all_flap_status[household_id][flap_id]['locking']['mode']
         if lock == LK_MOD.UNLOCKED:
             return False
         if lock in [LK_MOD.LOCKED_IN, LK_MOD.LOCKED_OUT, LK_MOD.LOCKED_ALL,]:
