@@ -615,6 +615,7 @@ class SurePetFlapAPI(object):
                           'pet_timeline': {}, # indexed by household
                           'house_timeline': {}, # indexed by household
                           'curfew_locked': {}, # indexed by household
+                          'version': 1 # of cache structure.
                           }
 
     def __enter__( self ):
