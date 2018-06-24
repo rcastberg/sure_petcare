@@ -70,7 +70,7 @@ class SurePetFlapAPI(object):
     below.
     """
 
-    def __init__(self, email_address=None, password=None, household_id=None, device_id=None, cache_file=CACHE_FILE, debug=False):
+    def __init__( self, email_address = None, password = None, household_id = None, device_id = None, cache_file = CACHE_FILE, debug = False ):
         """
         `email_address` and `password` are self explanatory.  They are cached on
         disc file `cache_file` and are therefore only mandatory on first
@@ -108,8 +108,8 @@ class SurePetFlapAPI(object):
         ```
         with SurePetFlap() as api:
             api.update_pet_status()
-        for pid, info in api.pets.items():
-            print( '%s is %s' % (info['name'], api.get_pet_location(pid),) )
+        for pet_id, info in api.pets.items():
+            print( '%s is %s' % (info['name'], api.get_pet_location(pet_id),) )
         ```
 
         Note that the disc copy of the cache is locked while in context, so
@@ -160,43 +160,43 @@ class SurePetFlapAPI(object):
     def battery( self ):
         "Battery level of default flap at default household"
         return self.get_battery()
-    def get_battery( self, hid = None, fid = None ):
+    def get_battery( self, household_id = None, flap_id = None ):
         """
         Return battery voltage (assuming four batteries).  The level at which
         you should replace them depends on the chemistry (type) of the battery.
         As a guide, alkalines should be replaced before they reach 1.2V.  Use
         the official app to get better advice.
         """
-        hid = hid or self.default_household
-        fid = fid or self.get_default_flap( hid )
+        household_id = household_id or self.default_household
+        flap_id = flap_id or self.get_default_flap( household_id )
         try:
-            return self.flap_status[hid][fid]['battery'] / 4.0
+            return self.flap_status[household_id][flap_id]['battery'] / 4.0
         except KeyError:
             raise SPAPIUnitialised()
 
     @property
     def pets( self ):
         return self.get_pets()
-    def get_pets( self, hid = None ):
+    def get_pets( self, household_id = None ):
         "Return dict of pets.  Default household used if not specified."
-        hid = hid or self.default_household
+        household_id = household_id or self.default_household
         try:
-            return self.households[hid]['pets']
+            return self.households[household_id]['pets']
         except KeyError:
             raise SPAPIUnitialised()
 
-    def get_pet_id_by_name(self, name, household_id = None):
+    def get_pet_id_by_name( self, name, household_id = None ):
         """
         Returns the numeric ID (not the tag ID) of the pet by name.  Match is
         case insensitive and the first pet found with that name is returned.
         Default household used if not specified.
         """
         household_id = household_id or self.default_household
-        for petid, petdata in self.get_pets( household_id ).items():
+        for pet_id, petdata in self.get_pets( household_id ).items():
             if petdata['name'].lower() == name.lower():
-                return petid
+                return pet_id
 
-    def get_pet_location(self, pet_id, household_id = None):
+    def get_pet_location( self, pet_id, household_id = None ):
         """
         Returns one of enum LOC indicating last known movement of the pet.
         Default household used if not specified.
@@ -206,7 +206,7 @@ class SurePetFlapAPI(object):
             raise SPAPIUnknownPet()
         return self.pet_status[household_id][pet_id]['where']
 
-    def get_lock_mode(self, flap_id = None, household_id = None):
+    def get_lock_mode( self, flap_id = None, household_id = None ):
         """
         Returns one of enum LK_MOD indicating flap lock mode.  Default household
         and flap used if not specified.
@@ -248,29 +248,29 @@ class SurePetFlapAPI(object):
     def default_router( self ):
         "Returns the default router ID for the default household"
         return self.get_default_router()
-    def get_default_router( self, hid = None ):
+    def get_default_router( self, household_id = None ):
         "Set the default router ID."
-        hid = hid or self.default_household
-        return self.households[hid]['default_router']
-    def set_default_router( self, hid, rid ):
+        household_id = household_id or self.default_household
+        return self.households[household_id]['default_router']
+    def set_default_router( self, household_id, rid ):
         "Get the default router ID."
         if self.__read_only:
             raise SPAPIReadOnly()
-        self.households[hid]['default_router'] = rid
+        self.households[household_id]['default_router'] = rid
 
     @property
     def default_flap( self ):
         "Returns the default flap ID for the default household"
         return self.get_default_flap()
-    def get_default_flap( self, hid = None ):
+    def get_default_flap( self, household_id = None ):
         "Get the default flap ID."
-        hid = hid or self.default_household
-        return self.households[hid]['default_flap']
-    def set_default_flap( self, hid, fid ):
+        household_id = household_id or self.default_household
+        return self.households[household_id]['default_flap']
+    def set_default_flap( self, household_id, flap_id ):
         "Set the default flap ID."
         if self.__read_only:
             raise SPAPIReadOnly()
-        self.households[hid]['default_flap'] = fid
+        self.households[household_id]['default_flap'] = flap_id
 
     #
     # These properties return respective data for all households as a dict
@@ -322,7 +322,7 @@ class SurePetFlapAPI(object):
     # Update methods.  USE SPARINGLY!
     #
 
-    def update(self):
+    def update( self ):
         """
         Update everything.  Must be invoked once, but please, only once.  Call
         the individual update methods according to your applications needs.
@@ -339,7 +339,7 @@ class SurePetFlapAPI(object):
         #     the API call.
         self.update_house_timeline()
 
-    def update_authtoken(self, force = False):
+    def update_authtoken( self, force = False ):
         """
         Update cache with authentication token if missing.  Use `force = True`
         when the token expires (the API generally does this automatically).
@@ -359,7 +359,7 @@ class SurePetFlapAPI(object):
         response_data = response.json()
         self.cache['AuthToken'] = response_data['data']['token']
 
-    def update_households(self, force = False):
+    def update_households( self, force = False ):
         """
         Update cache with info about the household(s) associated with the account.
         """
@@ -386,15 +386,15 @@ class SurePetFlapAPI(object):
         if self.default_household not in self.households:
             self.default_household = response_household['data'][0]['id']
 
-    def update_device_ids(self, hid = None, force = False):
+    def update_device_ids( self, household_id = None, force = False ):
         """
         Update cache with list of router and flap IDs for each household.  The
         default router and flap are set to the first ones found.
         """
         if self.__read_only:
             raise SPAPIReadOnly()
-        hid = hid or self.default_household
-        household = self.households[hid]
+        household_id = household_id or self.default_household
+        household = self.households[household_id]
         if (household['default_router'] is not None and
             household['default_flap'] is not None and not force):
             return
@@ -403,7 +403,7 @@ class SurePetFlapAPI(object):
         )
         routers = household['routers'] = []
         flaps = household['flaps'] = []
-        url = '%s/%s/device' % (_URL_HOUSEHOLD, hid,)
+        url = '%s/%s/device' % (_URL_HOUSEHOLD, household_id,)
         response_children = self._get_data(url, params)
         for device in response_children['data']:
             if device['product_id'] == PROD_ID.FLAP: # Catflap
@@ -413,20 +413,20 @@ class SurePetFlapAPI(object):
         household['default_flap'] = flaps[0]
         household['default_router'] = routers[0]
 
-    def update_pet_info(self, hid = None, force = False):
+    def update_pet_info( self, household_id = None, force = False ):
         """
         Update cache with pet information.
         """
         if self.__read_only:
             raise SPAPIReadOnly()
-        hid = hid or self.default_household
-        household = self.households[hid]
+        household_id = household_id or self.default_household
+        household = self.households[household_id]
         if household.get('pets') is not None and not force:
             return
         params = (
             ('with[]', ['photo', 'tag']),
         )
-        url = '%s/%s/pet' % (_URL_HOUSEHOLD, hid,)
+        url = '%s/%s/pet' % (_URL_HOUSEHOLD, household_id,)
         response_pets = self._get_data(url, params)
         household['pets'] = {
             x['id']: {'name': x['name'],
@@ -435,20 +435,20 @@ class SurePetFlapAPI(object):
                       } for x in response_pets['data']
             }
 
-    def update_flap_status(self, hid = None):
+    def update_flap_status( self, household_id = None ):
         """
         Update flap status.  Default household used if not specified.
         """
         if self.__read_only:
             raise SPAPIReadOnly()
-        hid = hid or self.default_household
-        household = self.households[hid]
-        for fid in household['flaps']:
-            url = '%s/%s/status' % (_URL_DEV, fid,)
+        household_id = household_id or self.default_household
+        household = self.households[household_id]
+        for flap_id in household['flaps']:
+            url = '%s/%s/status' % (_URL_DEV, flap_id,)
             response = self._get_data(url)
-            self.cache['flap_status'].setdefault( hid, {} )[fid] = response['data']
+            self.cache['flap_status'].setdefault( household_id, {} )[flap_id] = response['data']
 
-    def update_router_status(self, hid = None):
+    def update_router_status( self, household_id = None ):
         """
         Update router status.  Don't call unless you really need to because
         there's not much of interest here.  Default household used if not
@@ -456,72 +456,72 @@ class SurePetFlapAPI(object):
         """
         if self.__read_only:
             raise SPAPIReadOnly()
-        hid = hid or self.default_household
-        household = self.households[hid]
+        household_id = household_id or self.default_household
+        household = self.households[household_id]
         for rid in household['routers']:
             url = '%s/%s/status' % (_URL_DEV, rid,)
             response = self._get_data(url)
-            self.cache['router_status'].setdefault( hid, {} )[rid] = response['data']
+            self.cache['router_status'].setdefault( household_id, {} )[rid] = response['data']
 
-    def update_house_timeline(self, hid = None):
+    def update_house_timeline( self, household_id = None ):
         """
         Update household event timeline and curfew lock status.  Default
         household used if not specified.
         """
         if self.__read_only:
             raise SPAPIReadOnly()
-        hid = hid or self.default_household
+        household_id = household_id or self.default_household
         params = (
             ('type', '0,3,6,7,12,13,14,17,19,20'),
         )
-        url = '%s/household/%s' % (_URL_TIMELINE, hid,)
+        url = '%s/household/%s' % (_URL_TIMELINE, household_id,)
         response = self._get_data(url, params)
-        htl = self.cache['house_timeline'][hid] = response['data']
+        htl = self.cache['house_timeline'][household_id] = response['data']
         curfew_events = [x for x in htl if x['type'] == EVT.CURFEW]
         if curfew_events:
             # Serialised JSON within a serialised JSON structure?!  Weird.
-            self.cache['curfew_locked'][hid] = json.loads(curfew_events[0]['data'])['locked']
+            self.cache['curfew_locked'][household_id] = json.loads(curfew_events[0]['data'])['locked']
         else:
             # new accounts might not be populated with the relevent information
-            self.cache['curfew_locked'][hid] = None
+            self.cache['curfew_locked'][household_id] = None
 
-    def update_pet_status(self, hid = None):
+    def update_pet_status( self, household_id = None ):
         """
         Update pet status.  Default household used if not specified.
         """
         if self.__read_only:
             raise SPAPIReadOnly()
-        hid = hid or self.default_household
-        self.cache['pet_status'][hid] = {}
-        for pid in self.get_pets( hid ):
-            url = '%s/%s/position' % (_URL_PET, pid,)
+        household_id = household_id or self.default_household
+        self.cache['pet_status'][household_id] = {}
+        for pet_id in self.get_pets( household_id ):
+            url = '%s/%s/position' % (_URL_PET, pet_id,)
             headers = self._create_header()
             response = self._get_data(url)
-            self.cache['pet_status'][hid][pid] = response['data']
+            self.cache['pet_status'][household_id][pet_id] = response['data']
 
-    def update_pet_timeline(self, hid = None):
+    def update_pet_timeline( self, household_id = None ):
         """
         Update pet timeline.  Default household used if not specified.
         """
         if self.__read_only:
             raise SPAPIReadOnly()
-        hid = hid or self.default_household
-        household = self.households[hid]
+        household_id = household_id or self.default_household
+        household = self.households[household_id]
         params = (
             ('type', '0,3,6,7,12,13,14,17,19,20'),
         )
         petdata={}
-        for pid in household['pets']:
-            url = '%s/pet/%s/%s' % (_URL_TIMELINE, pid, hid,)
+        for pet_id in household['pets']:
+            url = '%s/pet/%s/%s' % (_URL_TIMELINE, pet_id, household_id,)
             response = self._get_data(url, params=params)
-            petdata[pid] = response['data']
-        self.cache['pet_timeline'][hid] = petdata
+            petdata[pet_id] = response['data']
+        self.cache['pet_timeline'][household_id] = petdata
 
     #
     # Low level remote API wrappers.  Do not use.
     #
 
-    def _get_data(self, url, params=None):
+    def _get_data( self, url, params = None ):
         if self.__read_only:
             raise SPAPIReadOnly()
         headers = None
@@ -552,7 +552,7 @@ class SurePetFlapAPI(object):
                 }
         return self.cache[url]['LastData']
 
-    def _create_header(self, ETag=None):
+    def _create_header( self, ETag = None ):
         headers={
             'Connection': 'keep-alive',
             'Accept': 'application/json, text/plain, */*',
@@ -656,7 +656,7 @@ class SurePetFlapMixin( object ):
     A mixin that implements introspection of data collected by SurePetFlapAPI.
     """
 
-    def print_timeline(self, pet_id = None, name = None, entry_type = None, household_id = None):
+    def print_timeline( self, pet_id = None, name = None, entry_type = None, household_id = None ):
         """
         Print timeline for a particular pet, specify entry_type to only get one
         direction.  Default household is used if not specified.
@@ -688,7 +688,7 @@ class SurePetFlapMixin( object ):
             except Exception as e:
                 print(e)
 
-    def locked(self, flap_id = None, household_id = None):
+    def locked( self, flap_id = None, household_id = None ):
         """
         Return whether door is locked or not.  Default household and flap used
         if not specified.
@@ -708,7 +708,7 @@ class SurePetFlapMixin( object ):
             else:
                 return False
 
-    def lock_mode(self, flap_id = None, household_id = None):
+    def lock_mode( self, flap_id = None, household_id = None ):
         """
         Returns a string describing the flap lock mode.  Default household and
         flap used if not specified.
@@ -729,7 +729,7 @@ class SurePetFlapMixin( object ):
         elif lock == LK_MOD.CURFEW_UNLOCKED:
             return 'Unlocked with curfew'
 
-    def get_current_status(self, petid=None, name=None, household_id = None):
+    def get_current_status( self, pet_id = None, name = None, household_id = None ):
         """
         Returns a string describing the last known movement of the pet.
 
@@ -738,12 +738,12 @@ class SurePetFlapMixin( object ):
         they're inside when in fact they're outside.  The same limitation
         presumably applies to the official website and app.
         """
-        if petid is None and name is None:
-            raise ValueError('Please define petid or name')
-        if petid is None:
-            petid = self.get_pet_id_by_name(name)
-        petid=int(petid)
-        loc = self.get_pet_location( petid, household_id )
+        if pet_id is None and name is None:
+            raise ValueError('Please define pet_id or name')
+        if pet_id is None:
+            pet_id = self.get_pet_id_by_name(name)
+        pet_id = int(pet_id)
+        loc = self.get_pet_location( pet_id, household_id )
         if loc == LOC.UNKNOWN:
             return 'Unknown'
         else:
@@ -751,7 +751,7 @@ class SurePetFlapMixin( object ):
             return INOUT_STATUS[loc]
 
 
-class SurePetFlap(SurePetFlapMixin, SurePetFlapAPI):
+class SurePetFlap( SurePetFlapMixin, SurePetFlapAPI ):
     """Class to take care of network communication with SurePet's products.
 
     See docstring for parent classes on how to use.  In particular, **please**
