@@ -108,7 +108,7 @@ class SurePetFlapAPI(object):
         ```
         with SurePetFlap() as api:
             api.update_pet_status()
-        for pid, info in api.get_pets():
+        for pid, info in api.pets.items():
             print( '%s is %s' % (info['name'], api.get_pet_location(pid),) )
         ```
 
@@ -144,144 +144,41 @@ class SurePetFlapAPI(object):
         if password:
             self.cache['pw'] = password
 
-    def _load_cache( self ):
-        """
-        Read cache file.  The cache is written by the context `__exit__()`
-        method.
-        """
-        # Cache locking is done by the context manager methods.
-        try:
-            with open( self.cache_file, 'rb' ) as f:
-                self.cache = pickle.load( f )
-        except pickle.PickleError: # let file errors pass to caller
-            self.cache = {'AuthToken': None,
-                          'households': None,
-                          'default_household': self._init_default_household,
-                          'router_status': {}, # indexed by household
-                          'flap_status': {}, # indexed by household
-                          'pet_status': {}, # indexed by household
-                          'pet_timeline': {}, # indexed by household
-                          'house_timeline': {}, # indexed by household
-                          'curfew_locked': {}, # indexed by household
-                          }
-
-    def __enter__( self ):
-        """
-        Entering context unlocks the cache for modification and update.
-        """
-        if os.path.exists( self.cache_lockfile ):
-            raise SPAPICacheLocked()
-        else:
-            # Yeah, there are better ways of doing this, but I don't want to
-            # add to the API's dependencies for the sake of compatibility.
-            with open( self.cache_lockfile, 'w' ) as lf:
-                # Conveniently, this also tests that the cache file location
-                # is writeable.
-                lf.write( str(os.getpid()) )
-            # Check to make sure that we didn't get gazumped
-            with open( self.cache_lockfile, 'r' ) as lf:
-                if int(lf.read()) != os.getpid():
-                    raise SPAPICacheLocked()
-            # We've got a solid lock.  Hopefully.
-        self._load_cache()
-        self.__read_only = False
-        return self
-
-    def __exit__( self, exc_type, exc_value, traceback ):
-        """
-        Exiting context locks the cache to prevent further modification and
-        also flushes the cache to disc.
-        """
-        self.__read_only = True
-        with open( self.cache_file, 'wb' ) as f:
-            pickle.dump( self.cache, f )
-        os.remove( self.cache_lockfile )
+    #
+    # Query methods (with helper properties that use defaults where possible)
+    #
 
     @property
-    def default_household( self ):
-        """
-        Get the default house ID.
-        """
-        return self.cache['default_household']
-    @default_household.setter
-    def default_household( self, id ):
-        """
-        Set the default household ID.
-        """
-        if self.__read_only:
-            raise SPAPIReadOnly()
-        self.cache['default_household'] = id
-    @property
-    def households( self ):
-        """
-        Return dict of households which include name, timezone information
-        suitable for use with pytz and also pet info.
-
-        NB: Indexed by household ID.
-        """
-        return self.cache['households']
-    @households.setter
-    def households( self, data ):
-        """
-        Set household data.
-        """
-        if self.__read_only:
-            raise SPAPIReadOnly()
-        self.cache['households'] = data
-    @property
-    def router_status( self ):
-        return self.cache['router_status']
-    @property
-    def flap_status( self ):
-        return self.cache['flap_status']
-    @property
-    def pet_status( self ):
-        return self.cache['pet_status']
-    @property
-    def pet_timeline( self ):
-        return self.cache['pet_timeline']
-    @property
-    def house_timeline( self ):
-        return self.cache['house_timeline']
-    @property
-    def curfew_locked( self ):
-        return self.cache['curfew_locked']
-    @property
-    def cache_is_empty( self ):
+    def update_required( self ):
+        """Indicates whether an `update()` call is **required** for correct
+           function, not whether the cache is up-to-date."""
         return (self.cache['AuthToken'] is None or
                 self.households is None or
-                self.households[self.default_household].get('pets') is None)
+                self.household.get('pets') is None)
 
-    def get_default_router( self, hid ):
+    @property
+    def battery( self ):
+        "Battery level of default flap at default household"
+        return self.get_battery()
+    def get_battery( self, hid = None, fid = None ):
         """
-        Set the default router ID.
+        Return battery voltage (assuming four batteries).  The level at which
+        you should replace them depends on the chemistry (type) of the battery.
+        As a guide, alkalines should be replaced before they reach 1.2V.  Use
+        the official app to get better advice.
         """
-        return self.households[hid]['default_router']
-    def set_default_router( self, hid, rid ):
-        """
-        Get the default router ID.
-        """
-        if self.__read_only:
-            raise SPAPIReadOnly()
-        self.households[hid]['default_router'] = rid
+        hid = hid or self.default_household
+        fid = fid or self.get_default_flap( hid )
+        try:
+            return self.flap_status[hid][fid]['battery'] / 4.0
+        except KeyError:
+            raise SPAPIUnitialised()
 
-    def get_default_flap( self, hid ):
-        """
-        Get the default flap ID.
-        """
-        return self.households[hid]['default_flap']
-    def set_default_flap( self, hid, fid ):
-        """
-        Set the default flap ID.
-        """
-        if self.__read_only:
-            raise SPAPIReadOnly()
-        self.households[hid]['default_flap'] = fid
-
+    @property
+    def pets( self ):
+        return self.get_pets()
     def get_pets( self, hid = None ):
-        """
-        Return dict of pets.  Default household used if not specified.
-        """
+        "Return dict of pets.  Default household used if not specified."
         hid = hid or self.default_household
         try:
             return self.households[hid]['pets']
@@ -298,6 +195,16 @@ class SurePetFlapAPI(object):
         for petid, petdata in self.get_pets( household_id ).items():
             if petdata['name'].lower() == name.lower():
                 return petid
+
+    def get_pet_location(self, pet_id, household_id = None):
+        """
+        Returns one of enum LOC indicating last known movement of the pet.
+        Default household used if not specified.
+        """
+        household_id = household_id or self.default_household
+        if pet_id not in self.pet_status[household_id]:
+            raise SPAPIUnknownPet()
+        return self.pet_status[household_id][pet_id]['where']
 
     def get_lock_mode(self, flap_id = None, household_id = None):
         """
@@ -318,15 +225,102 @@ class SurePetFlapAPI(object):
                 mode = LK_MOD.CURFEW_UNLOCKED
         return mode
 
-    def get_pet_location(self, pet_id, household_id = None):
+    #
+    # Default household and device helpers
+    #
+
+    @property
+    def default_household( self ):
+        "Get the default house ID."
+        return self.cache['default_household']
+    @default_household.setter
+    def default_household( self, id ):
+        "Set the default household ID."
+        if self.__read_only:
+            raise SPAPIReadOnly()
+        self.cache['default_household'] = id
+    @property
+    def household( self ):
+        "Return default household dict"
+        return self.households[self.default_household]
+
+    @property
+    def default_router( self ):
+        "Returns the default router ID for the default household"
+        return self.get_default_router()
+    def get_default_router( self, hid = None ):
+        "Set the default router ID."
+        hid = hid or self.default_household
+        return self.households[hid]['default_router']
+    def set_default_router( self, hid, rid ):
+        "Get the default router ID."
+        if self.__read_only:
+            raise SPAPIReadOnly()
+        self.households[hid]['default_router'] = rid
+
+    @property
+    def default_flap( self ):
+        "Returns the default flap ID for the default household"
+        return self.get_default_flap()
+    def get_default_flap( self, hid = None ):
+        "Get the default flap ID."
+        hid = hid or self.default_household
+        return self.households[hid]['default_flap']
+    def set_default_flap( self, hid, fid ):
+        "Set the default flap ID."
+        if self.__read_only:
+            raise SPAPIReadOnly()
+        self.households[hid]['default_flap'] = fid
+
+    #
+    # These properties return respective data for all households as a dict
+    # indexed by household ID (most of them indexed by another ID).
+    #
+
+    @property
+    def households( self ):
         """
-        Returns one of enum LOC indicating last known movement of the pet.
-        Default household used if not specified.
+        Return dict of households which include name, timezone information
+        suitable for use with pytz and also pet info.
+
+        NB: Indexed by household ID.
         """
-        household_id = household_id or self.default_household
-        if pet_id not in self.pet_status[household_id]:
-            raise SPAPIUnknownPet()
-        return self.pet_status[household_id][pet_id]['where']
+        return self.cache['households']
+    @households.setter
+    def households( self, data ):
+        "Set household data."
+        if self.__read_only:
+            raise SPAPIReadOnly()
+        self.cache['households'] = data
+
+    @property
+    def router_status( self ):
+        "Dict of all routers indexed by household and router IDs"
+        return self.cache['router_status']
+    @property
+    def flap_status( self ):
+        "Dict of all flaps indexed by household and router IDs"
+        return self.cache['flap_status']
+    @property
+    def pet_status( self ):
+        "Dict of all pets indexed by household and pet IDs"
+        return self.cache['pet_status']
+    @property
+    def pet_timeline( self ):
+        "Dict of pet events indexed by household ID"
+        return self.cache['pet_timeline']
+    @property
+    def house_timeline( self ):
+        "Dict of household events indexed by household ID"
+        return self.cache['house_timeline']
+    @property
+    def curfew_locked( self ):
+        "Dict of curfew lock status indexed by household ID"
+        return self.cache['curfew_locked']
+
+    #
+    # Update methods.  USE SPARINGLY!
+    #
 
     def update(self):
         """
@@ -523,6 +517,10 @@ class SurePetFlapAPI(object):
             petdata[pid] = response['data']
         self.cache['pet_timeline'][hid] = petdata
 
+    #
+    # Low level remote API wrappers.  Do not use.
+    #
+
     def _get_data(self, url, params=None):
         if self.__read_only:
             raise SPAPIReadOnly()
@@ -594,22 +592,83 @@ class SurePetFlapAPI(object):
         self.req_rx_bytes += l
         print( 'requests: %s %s -> %s (%0.3f kiB, total %0.3f kiB in %s requests)' % (r.request.method, r.request.url, r.status_code, l/1024.0, self.req_rx_bytes/1024.0, self.req_count,) )
 
+    #
+    # Cache management
+    #
+
+    def _load_cache( self ):
+        """
+        Read cache file.  The cache is written by the context `__exit__()`
+        method.
+        """
+        # Cache locking is done by the context manager methods.
+        try:
+            with open( self.cache_file, 'rb' ) as f:
+                self.cache = pickle.load( f )
+        except pickle.PickleError: # let file errors pass to caller
+            self.cache = {'AuthToken': None,
+                          'households': None,
+                          'default_household': self._init_default_household,
+                          'router_status': {}, # indexed by household
+                          'flap_status': {}, # indexed by household
+                          'pet_status': {}, # indexed by household
+                          'pet_timeline': {}, # indexed by household
+                          'house_timeline': {}, # indexed by household
+                          'curfew_locked': {}, # indexed by household
+                          }
+
+    def __enter__( self ):
+        """
+        Entering context unlocks the cache for modification and update.
+        """
+        if os.path.exists( self.cache_lockfile ):
+            raise SPAPICacheLocked()
+        else:
+            # Yeah, there are better ways of doing this, but I don't want to
+            # add to the API's dependencies for the sake of compatibility.
+            with open( self.cache_lockfile, 'w' ) as lf:
+                # Conveniently, this also tests that the cache file location
+                # is writeable.
+                lf.write( str(os.getpid()) )
+            # Check to make sure that we didn't get gazumped
+            with open( self.cache_lockfile, 'r' ) as lf:
+                if int(lf.read()) != os.getpid():
+                    raise SPAPICacheLocked()
+            # We've got a solid lock.  Hopefully.
+        self._load_cache()
+        self.__read_only = False
+        return self
+
+    def __exit__( self, exc_type, exc_value, traceback ):
+        """
+        Exiting context locks the cache to prevent further modification and
+        also flushes the cache to disc.
+        """
+        self.__read_only = True
+        with open( self.cache_file, 'wb' ) as f:
+            pickle.dump( self.cache, f )
+        os.remove( self.cache_lockfile )
+
 
 class SurePetFlapMixin( object ):
     """
     A mixin that implements introspection of data collected by SurePetFlapAPI.
     """
 
-    def print_timeline(self, pet_id, entry_type = None, household_id = None):
+    def print_timeline(self, pet_id = None, name = None, entry_type = None, household_id = None):
         """
         Print timeline for a particular pet, specify entry_type to only get one
         direction.  Default household is used if not specified.
         """
         household_id = household_id or self.default_household
-        household = self.households[household_id]
+        if pet_id is None and name is None:
+            raise ValueError('Please define pet_id or name')
+        if pet_id is None:
+            pet_id = self.get_pet_id_by_name(name)
+        pet_id=int(pet_id)
         try:
-            tag_id = household['pets'][pet_id]['tag_id']
-            pet_name = household['pets'][pet_id]['name']
+            tag_id = self.household['pets'][pet_id]['tag_id']
+            pet_name = self.household['pets'][pet_id]['name']
         except KeyError as e:
             raise SPAPIUnknownPet( str(e) )
         petdata = self.pet_timeline[household_id][pet_id]
