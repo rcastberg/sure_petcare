@@ -51,6 +51,8 @@ other option (other than --email or --pass)."""
                          help = 'account password' )
     parser.add_argument( '--update', action = 'store_true',
                          help = 'update cache from Sure servers.  Mutually exclusive with commands/queries.' )
+    parser.add_argument( '-c', '--cache-file',
+                         help = 'Cache file to use if not default' )
     parser.add_argument( 'cmd', nargs = '*',
                          help = 'One of ' + ', '.join( sorted(CMDS.keys()) ) )
     args = parser.parse_args()
@@ -63,10 +65,9 @@ other option (other than --email or --pass)."""
         exit()
 
     debug = os.environ.get( 'SPDEBUG' ) is not None
-    cachefile = os.environ.get( 'SPCACHE', sure_petcare.CACHE_FILE )
     sp = sure_petcare.SurePetFlap( email_address = args.email,
                                    password = args.pw,
-                                   cache_file = cachefile,
+                                   cache_file = args.cache_file,
                                    debug = debug )
 
     if args.update:
@@ -89,7 +90,6 @@ def cmd( f ):
         raise ValueError( 'bad use of @cmd decorator: %s' % (f.__name__,) )
     return f
 
-from pprint import pprint
 
 @cmd
 def cmd_ls_house( sp, args ):
