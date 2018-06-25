@@ -8,4 +8,5 @@ setup(name='sure_petcare',
       author_email='rene@castberg.org',
       license='GPL',
       packages=['sure_petcare'],
+      scripts=['sp_cli.py'],
       zip_safe=False)
