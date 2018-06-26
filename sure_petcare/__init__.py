@@ -308,11 +308,11 @@ class SurePetFlapAPI(object):
         return self.cache['pet_status']
     @property
     def pet_timeline( self ):
-        "Pet events for default household"
+        "Pet events for default household (subset of house timeline)"
         return self.all_pet_timeline[self.default_household]
     @property
     def all_pet_timeline( self ):
-        "Dict of pet events indexed by household ID"
+        "Dict of pet events indexed by household ID (subset of house timeline)"
         return self.cache['pet_timeline']
     @property
     def house_timeline( self ):
@@ -336,13 +336,13 @@ class SurePetFlapAPI(object):
         self.update_households()
         self.update_device_ids()
         self.update_pet_info()
-        self.update_pet_timeline()
         self.update_pet_status()
         self.update_flap_status()
         #self.update_router_status()
         # XXX For now, router status contains little of interest and isn't worth
-        #     the API call.
-        self.update_house_timeline()
+        #     the API call.  Call it explicitly if you need this (which you
+        #     should be doing anyway to save on bandwidth).
+        self.update_timelines()
 
     def update_authtoken( self, force = False ):
         """
@@ -469,10 +469,28 @@ class SurePetFlapAPI(object):
             response = self._get_data(url)
             self.cache['router_status'].setdefault( household_id, {} )[rid] = response['data']
 
-    def update_house_timeline( self, household_id = None ):
+    def update_timelines( self, household_id = None ):
         """
         Update household event timeline and curfew lock status.  Default
         household used if not specified.
+
+        NB: This call reconstructs the data that would be returned by the
+            timeline/pet REST call rather than making N such calls for N pets
+            in order to minimise load on servers which means that pet timelines
+            contain fewer entries than they would if you have multiple pets
+            (because each REST endpoint nominally returns 50 records).
+
+            This might only be a problem if you have multiple pets and the most
+            active pet is substantially more so than the least active.  This
+            may be addressed in a future version of these bindings if it seems
+            to be a problem.  However, unless your animals are exceptionally
+            active, a call once a day should be enough to capture complete
+            history.
+
+            Another side-effect is that the pet timeline has non-movement
+            related events (eg curfew lock/unlock events) filtered.  It
+            necessarily also must filter out unidentified movements because
+            it's impossible to which pet to attribute such events.
         """
         if self.__read_only:
             raise SPAPIReadOnly()
@@ -483,6 +501,15 @@ class SurePetFlapAPI(object):
         url = '%s/household/%s' % (_URL_TIMELINE, household_id,)
         response = self._get_data(url, params)
         self.cache['house_timeline'][household_id] = response['data']
+
+        # Build per-pet timeline
+        tag_lut = {v['tag_id']: k for k, v in self.get_pets( household_id ).items()}
+        self.cache['pet_timeline'][household_id] = {
+            pet_id: [x for x in self.cache['house_timeline'][household_id]
+                       if x['type'] == EVT.MOVE and tag_lut[x['movements'][0]['tag_id']] == pet_id]
+                for pet_id in self.get_pets( household_id ).keys()
+           }
+
 
     def update_pet_status( self, household_id = None ):
         """
@@ -497,24 +524,6 @@ class SurePetFlapAPI(object):
             headers = self._create_header()
             response = self._get_data(url)
             self.cache['pet_status'][household_id][pet_id] = response['data']
-
-    def update_pet_timeline( self, household_id = None ):
-        """
-        Update pet timeline.  Default household used if not specified.
-        """
-        if self.__read_only:
-            raise SPAPIReadOnly()
-        household_id = household_id or self.default_household
-        household = self.households[household_id]
-        params = (
-            ('type', '0,3,6,7,12,13,14,17,19,20'),
-        )
-        petdata={}
-        for pet_id in household['pets']:
-            url = '%s/pet/%s/%s' % (_URL_TIMELINE, pet_id, household_id,)
-            response = self._get_data(url, params=params)
-            petdata[pet_id] = response['data']
-        self.cache['pet_timeline'][household_id] = petdata
 
     #
     # Low level remote API wrappers.  Do not use.
@@ -673,8 +682,6 @@ class SurePetFlapMixin( object ):
         petdata = self.all_pet_timeline[household_id][pet_id]
 
         for movement in petdata:
-            if movement['type'] in [EVT.MOVE_UID, EVT.LOCK_ST, EVT.USR_IFO, EVT.USR_NEW, EVT.CURFEW, EVT.BAT_WARN,]:
-                continue
             try:
                 if entry_type is not None:
                     if movement['movements'][0]['tag_id'] == tag_id:
