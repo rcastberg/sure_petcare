@@ -40,7 +40,8 @@ LK_MOD = mk_enum( 'LK_MOD',
 
 PROD_ID = mk_enum( 'PROD_ID',
                    {'ROUTER': 1,
-                    'FLAP': 3,
+                    'PET_FLAP': 3,   # Pet Door Connect
+                    'CAT_FLAP': 6,   # Cat Door Connect
                     } )
 
 LOC = mk_enum( 'LOC',
@@ -412,7 +413,7 @@ class SurePetFlapAPI(object):
         url = '%s/%s/device' % (_URL_HOUSEHOLD, household_id,)
         response_children = self._get_data(url, params)
         for device in response_children['data']:
-            if device['product_id'] == PROD_ID.FLAP: # Catflap
+            if device['product_id'] in (PROD_ID.PET_FLAP, PROD_ID.CAT_FLAP): # Catflap
                 flaps[device['id']] = device['name']
             elif device['product_id'] == PROD_ID.ROUTER: # Router
                 routers[device['id']] = device['name']
