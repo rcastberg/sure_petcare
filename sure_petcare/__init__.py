@@ -7,7 +7,7 @@ import json
 import os
 import pickle
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, timezone
 import sure_petcare.utils as utils
 from .utils import mk_enum
 
@@ -535,7 +535,7 @@ class SurePetFlapAPI(object):
             raise SPAPIReadOnly()
         headers = None
         if url in self.cache:
-            time_since_last =  datetime.now() - self.cache[url]['ts']
+            time_since_last = datetime.now(timezone.utc) - self.cache[url]['ts']
             # Return cached data unless older than hard rate limit
             if time_since_last.total_seconds() > _HARD_RATE_LIMIT:
                 headers = self._create_header(ETag=self.cache[url]['ETag'])
@@ -552,12 +552,12 @@ class SurePetFlapAPI(object):
                     raise IndexError( url )
                 if response.status_code == 304:
                     # Can only get here if there is a cached response
-                    self.cache[url]['ts'] = datetime.now()
+                    self.cache[url]['ts'] = datetime.now(timezone.utc)
                 return self.cache[url]['LastData']
             self.cache[url] = {
                 'LastData': response.json(),
                 'ETag': response.headers['ETag'].strip( '"' ),
-                'ts': datetime.now(),
+                'ts': datetime.now(timezone.utc),
                 }
         return self.cache[url]['LastData']
 
