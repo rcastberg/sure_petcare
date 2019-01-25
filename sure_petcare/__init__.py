@@ -7,11 +7,13 @@ import json
 import os
 import pickle
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, timezone
 import sure_petcare.utils as utils
 from .utils import mk_enum
 
 CACHE_FILE = os.path.expanduser( '~/.surepet.cache' )
+# version of cache structure
+CACHE_VERSION = 2
 
 DIRECTION ={0:'Looked through',1:'Entered House',2:'Left House'}
 INOUT_STATUS = {1 : 'Inside', 2 : 'Outside'}
@@ -535,7 +537,7 @@ class SurePetFlapAPI(object):
             raise SPAPIReadOnly()
         headers = None
         if url in self.cache:
-            time_since_last =  datetime.now() - self.cache[url]['ts']
+            time_since_last = datetime.now(timezone.utc) - self.cache[url]['ts']
             # Return cached data unless older than hard rate limit
             if time_since_last.total_seconds() > _HARD_RATE_LIMIT:
                 headers = self._create_header(ETag=self.cache[url]['ETag'])
@@ -552,12 +554,12 @@ class SurePetFlapAPI(object):
                     raise IndexError( url )
                 if response.status_code == 304:
                     # Can only get here if there is a cached response
-                    self.cache[url]['ts'] = datetime.now()
+                    self.cache[url]['ts'] = datetime.now(timezone.utc)
                 return self.cache[url]['LastData']
             self.cache[url] = {
                 'LastData': response.json(),
                 'ETag': response.headers['ETag'].strip( '"' ),
-                'ts': datetime.now(),
+                'ts': datetime.now(timezone.utc),
                 }
         return self.cache[url]['LastData']
 
@@ -611,20 +613,30 @@ class SurePetFlapAPI(object):
         method.
         """
         # Cache locking is done by the context manager methods.
+
+        default_cache = {
+            'AuthToken': None,
+            'households': None,
+            'default_household': self._init_default_household,
+            'router_status': {},  # indexed by household
+            'flap_status': {},  # indexed by household
+            'pet_status': {},  # indexed by household
+            'pet_timeline': {},  # indexed by household
+            'house_timeline': {},  # indexed by household
+            'version': CACHE_VERSION  # of cache structure.
+        }
+
         try:
             with open( self.cache_file, 'rb' ) as f:
                 self.cache = pickle.load( f )
         except (pickle.PickleError, OSError,):
-            self.cache = {'AuthToken': None,
-                          'households': None,
-                          'default_household': self._init_default_household,
-                          'router_status': {}, # indexed by household
-                          'flap_status': {}, # indexed by household
-                          'pet_status': {}, # indexed by household
-                          'pet_timeline': {}, # indexed by household
-                          'house_timeline': {}, # indexed by household
-                          'version': 1 # of cache structure.
-                          }
+            self.cache = default_cache
+
+        if self.cache['version'] != CACHE_VERSION:
+            # reset cache, but try to preserve auth credentials
+            auth_token = self.cache.get('AuthToken')
+            self.cache = default_cache
+            self.cache['AuthToken'] = auth_token
 
     def __enter__( self ):
         """
