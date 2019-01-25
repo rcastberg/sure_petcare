@@ -12,6 +12,8 @@ import sure_petcare.utils as utils
 from .utils import mk_enum
 
 CACHE_FILE = os.path.expanduser( '~/.surepet.cache' )
+# version of cache structure
+CACHE_VERSION = 2
 
 DIRECTION ={0:'Looked through',1:'Entered House',2:'Left House'}
 INOUT_STATUS = {1 : 'Inside', 2 : 'Outside'}
@@ -611,20 +613,30 @@ class SurePetFlapAPI(object):
         method.
         """
         # Cache locking is done by the context manager methods.
+
+        default_cache = {
+            'AuthToken': None,
+            'households': None,
+            'default_household': self._init_default_household,
+            'router_status': {},  # indexed by household
+            'flap_status': {},  # indexed by household
+            'pet_status': {},  # indexed by household
+            'pet_timeline': {},  # indexed by household
+            'house_timeline': {},  # indexed by household
+            'version': CACHE_VERSION  # of cache structure.
+        }
+
         try:
             with open( self.cache_file, 'rb' ) as f:
                 self.cache = pickle.load( f )
         except (pickle.PickleError, OSError,):
-            self.cache = {'AuthToken': None,
-                          'households': None,
-                          'default_household': self._init_default_household,
-                          'router_status': {}, # indexed by household
-                          'flap_status': {}, # indexed by household
-                          'pet_status': {}, # indexed by household
-                          'pet_timeline': {}, # indexed by household
-                          'house_timeline': {}, # indexed by household
-                          'version': 1 # of cache structure.
-                          }
+            self.cache = default_cache
+
+        if self.cache['version'] != CACHE_VERSION:
+            # reset cache, but try to preserve auth credentials
+            auth_token = self.cache.get('AuthToken')
+            self.cache = default_cache
+            self.cache['AuthToken'] = auth_token
 
     def __enter__( self ):
         """
