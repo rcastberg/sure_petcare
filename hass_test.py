@@ -26,11 +26,11 @@ import home_assistant.sure_petflap as Dut
 from pprint import pprint
 import json
 
-dut = Dut.SurePetConnect( user, pw, debug = True, cache_file = cache_file )
+dut = Dut.SurePetConnect(user, pw, debug=True, cache_file=cache_file)
 
 
-print( '--- state (decoded JSON):' )
-pprint( json.loads( dut.state ) )
+print("--- state (decoded JSON):")
+pprint(json.loads(dut.state))
 
-print( '\n--- state attributes:' )
-pprint( dut.state_attributes )
+print("\n--- state attributes:")
+pprint(dut.state_attributes)
