@@ -110,6 +110,8 @@ def cmd_ls_pets( sp, args ):
         print( '%s (%s) is %s' % (pdata['name'], pid, sp.get_current_status( pid ),) )
 
 
+
+
 @cmd
 def cmd_ls_flaps( sp, args ):
     """
@@ -151,6 +153,37 @@ def cmd_set_hid( sp, args ):
                 sp.update()
     else:
         exit( 'Household ID %s not known' % (hid,) )
+
+# 2 Commands added by A. Greulich
+@cmd
+def cmd_pet_lock( sp: sure_petcare.SurePetFlapMixin, args ):
+    """
+    For each pet in household, lock it inside
+    """
+    try:
+        name = args.cmd[1]
+    except IndexError:
+        exit('need pet name (enclose in quotes if necessary)')
+
+    if sp.set_pet_profile( name = name, profile=3 ):
+        print("ok")
+    else:
+        print("fail")
+
+@cmd
+def cmd_pet_free( sp: sure_petcare.SurePetFlapMixin, args ):
+    """
+    For each pet in household, lock it inside
+    """
+    try:
+        name = args.cmd[1]
+    except IndexError:
+        exit('need pet name (enclose in quotes if necessary)')
+
+    if sp.set_pet_profile( name = name, profile=2 ):
+        print("ok")
+    else:
+        print("fail")
 
 if __name__ == '__main__':
     main( sys.argv )

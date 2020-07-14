@@ -17,6 +17,8 @@ CACHE_VERSION = 2
 
 DIRECTION ={0:'Looked through',1:'Entered House',2:'Left House'}
 INOUT_STATUS = {1 : 'Inside', 2 : 'Outside'}
+# Added by A. Greulich:
+PROFILES = {2 : 'Free to leave (outdoor pet)', 3 : 'Locked in (indoor pet)'}
 
 # The following event types are known, eg EVT.CURFEW.
 EVT = mk_enum( 'EVT',
@@ -52,6 +54,13 @@ LOC = mk_enum( 'LOC',
                 'UNKNOWN': -1,
                 } )
 
+# Added by A. Greulich
+TAG = mk_enum( 'LOC',
+               {'INDOOR': 3,
+                'OUTDOOR': 2,
+                'UNKNOWN': -1,
+                } )
+
 
 # REST API endpoints (no trailing slash)
 _URL_AUTH = 'https://app.api.surehub.io/api/auth/login'
@@ -59,7 +68,6 @@ _URL_HOUSEHOLD = 'https://app.api.surehub.io/api/household'
 _URL_DEV = 'https://app.api.surehub.io/api/device'
 _URL_TIMELINE = 'https://app.api.surehub.io/api/timeline'
 _URL_PET = 'https://app.api.surehub.io/api/pet'
-
 API_USER_AGENT = 'Mozilla/5.0 (Linux; Android 7.0; SM-G930F Build/NRD90M; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/64.0.3282.137 Mobile Safari/537.36'
 
 _HARD_RATE_LIMIT = 60
@@ -199,6 +207,17 @@ class SurePetFlapAPI(object):
         if pet_id not in self.all_pet_status[household_id]:
             raise SPAPIUnknownPet()
         return self.all_pet_status[household_id][pet_id]['where']
+
+    # Added by A. Greulich
+    def get_pet_profile( self, pet_id, household_id = None ):
+        """
+        Returns one of enum TAG indicating if cat is locked in or not.
+        Default household used if not specified.
+        """
+        household_id = household_id or self.default_household
+        if pet_id not in self.all_pet_status[household_id]:
+            raise SPAPIUnknownPet()
+        return self.all_pet_status[household_id][pet_id]['profile']
 
     def get_lock_mode( self, flap_id = None, household_id = None ):
         """
@@ -522,11 +541,25 @@ class SurePetFlapAPI(object):
             raise SPAPIReadOnly()
         household_id = household_id or self.default_household
         self.cache['pet_status'][household_id] = {}
+
+        # Added by A. Greulich, read profiles in a 'tags' hash:
+        params = (
+            ('with[]', 'tags'),
+        )
+        headers = self._create_header()
+        response = self._get_data(_URL_DEV, params)
+        tags = [x for x in response["data"] if "tags" in x][0]["tags"]
+
+        # traverse pets
         for pet_id in self.get_pets( household_id ):
             url = '%s/%s/position' % (_URL_PET, pet_id,)
             headers = self._create_header()
             response = self._get_data(url)
+            # Line added by A. Greulich:
+            response['data']['profile'] = [x['profile'] for x in tags if x['id'] == response['data']['tag_id']][0]
             self.cache['pet_status'][household_id][pet_id] = response['data']
+
+
 
     #
     # Low level remote API wrappers.  Do not use.
@@ -676,6 +709,42 @@ class SurePetFlapMixin( object ):
     A mixin that implements introspection of data collected by SurePetFlapAPI.
     """
 
+    # Added by A. Greulich
+    def set_pet_profile( self, pet_id = None, name = None, profile = None, household_id = None ):
+        """
+        Set lock mode of a pet (3 is locked, 2 is free)
+        """
+        household_id = household_id or self.default_household
+        if profile is None or type(profile) != int:
+            raise ValueError('Please define a profile int value')
+        if pet_id is None and name is None:
+            raise ValueError('Please define pet_id or name')
+        if pet_id is None:
+            pet_id = self.get_pet_id_by_name(name)
+        pet_id = int(pet_id)
+        try:
+            tag_id = self.household['pets'][pet_id]['tag_id']
+            pet_name = self.household['pets'][pet_id]['name']
+        except KeyError as e:
+            raise SPAPIUnknownPet(str(e))
+        device_id = self.household['default_flap']
+
+        headers = self._create_header()
+        data = {"profile": profile}
+        url = '%s/%s/tag/%s' % (_URL_DEV, device_id, tag_id)
+        response = self.s.put(url, headers=headers, json=data)
+        if response.status_code == 401:
+            self.update_authtoken(force=True)
+            if 'headers' in kwargs and 'Authorization' in kwargs['headers']:
+                kwargs['headers']['Authorization'] = 'Bearer ' + self.cache['AuthToken']
+                response = self.s.post(_URL_AUTH, headers=headers, json=data)
+            else:
+                raise SPAPIException('Auth required but not present in header')
+
+        response_data = response.json()
+        return 'data' in response_data and 'profile' in response_data['data'] and \
+               response_data['data']['profile'] == profile
+
     def print_timeline( self, pet_id = None, name = None, entry_type = None, household_id = None ):
         """
         Print timeline for a particular pet, specify entry_type to only get one
@@ -758,12 +827,22 @@ class SurePetFlapMixin( object ):
         if pet_id is None:
             pet_id = self.get_pet_id_by_name(name)
         pet_id = int(pet_id)
+
+        # Output modified by A. Greulich
+        res = ""
+        tag = self.get_pet_profile( pet_id, household_id )
+        if tag == TAG.UNKNOWN:
+            res = ""
+        else:
+            res = PROFILES[tag]
+
         loc = self.get_pet_location( pet_id, household_id )
         if loc == LOC.UNKNOWN:
-            return 'Unknown'
+            res += ' and currently Unknown'
         else:
             #Get last update
-            return INOUT_STATUS[loc]
+            res += ' and currently ' + INOUT_STATUS[loc]
+        return res
 
 
 class SurePetFlap( SurePetFlapMixin, SurePetFlapAPI ):
