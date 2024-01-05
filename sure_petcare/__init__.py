@@ -523,10 +523,10 @@ class SurePetFlapAPI(object):
         household_id = household_id or self.default_household
         self.cache['pet_status'][household_id] = {}
         for pet_id in self.get_pets( household_id ):
-            url = '%s/%s/position' % (_URL_PET, pet_id,)
+            url = '%s/%s' % (_URL_PET, pet_id,)
             headers = self._create_header()
             response = self._get_data(url)
-            self.cache['pet_status'][household_id][pet_id] = response['data']
+            self.cache['pet_status'][household_id][pet_id] = response['data']['position']
 
     #
     # Low level remote API wrappers.  Do not use.
