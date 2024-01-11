@@ -7,7 +7,7 @@ import json
 import os
 import pickle
 import requests
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import sure_petcare.utils as utils
 from .utils import mk_enum
 
@@ -447,6 +447,10 @@ class SurePetFlapAPI(object):
     def update_flap_status( self, household_id = None ):
         """
         Update flap status.  Default household used if not specified.
+
+        NB: Curfew key 'locked' is no longer returned by the SurePet API
+            so `update_timelines()` *MUST* be called to set this key, if
+            code relies on it.
         """
         if self.__read_only:
             raise SPAPIReadOnly()
@@ -454,8 +458,14 @@ class SurePetFlapAPI(object):
         household = self.households[household_id]
         for flap_id in household['flaps']:
             url = '%s/%s/status' % (_URL_DEV, flap_id,)
-            response = self._get_data(url)
-            self.cache['flap_status'].setdefault( household_id, {} )[flap_id] = response['data']
+            response = self._get_data(url)['data']
+            # In about December 2023, the key 'locked' went missing from key
+            # 'curfew'.  Put it back in, if it is still missing, and update
+            # from timeline later on.
+            if 'curfew' in response['locking'] and 'locked' not in response['locking']['curfew']:
+                response['locking']['curfew']['locked'] = None
+
+            self.cache['flap_status'].setdefault( household_id, {} )[flap_id] = response
 
     def update_router_status( self, household_id = None ):
         """
@@ -476,6 +486,9 @@ class SurePetFlapAPI(object):
         """
         Update household event timeline and curfew lock status.  Default
         household used if not specified.
+
+        NB: This *MUST* be called if your code relies on curfew state having a
+            'locked' key!
 
         NB: This call reconstructs the data that would be returned by the
             timeline/pet REST call rather than making N such calls for N pets
@@ -505,6 +518,28 @@ class SurePetFlapAPI(object):
         response = self._get_data(url, params)
         self.cache['house_timeline'][household_id] = response['data']
 
+        # Update flap_status curfew locked state from set lock events.
+        # Type 6 = set lock mode, type 20 = scheduled state change
+        event = next( event for event in response['data'] if event['type'] in (6, 20,) )
+        event_data = json.loads( event['data'] )
+        curfew = self.cache['flap_status'][household_id][event['devices'][0]['id']]['locking']['curfew']
+        if event['type'] == 20: # scheduled state change
+            curfew['locked'] = event_data['locked']
+        elif event_data['mode'] == LK_MOD.CURFEW: # enable curfew
+            t_fmt = '%H:%M'
+            t_lock = datetime.strptime( event_data['curfew'][0]['lock_time'], t_fmt )
+            t_unlock = datetime.strptime( event_data['curfew'][0]['unlock_time'], t_fmt )
+            # XXX Currently unknown whether (un)lock times are local or UTC.
+            # Assume local, for now.
+            t_now = datetime.strptime( datetime.now().strftime( t_fmt ), t_fmt )
+
+            if t_lock > t_unlock:
+                # locked period crosses midnight, so unlock time is tomorrow
+                t_unlock += timedelta( days = 1 )
+            curfew['locked'] = t_lock <= t_now < t_unlock
+        else: # not set to curfew so not really relevant, but may as well set it anyway
+            curfew['locked'] = event_data['mode'] != 0
+
         # Build per-pet timeline
         tag_lut = {v['tag_id']: k for k, v in self.get_pets( household_id ).items()}
         self.cache['pet_timeline'][household_id] = {
@@ -523,10 +558,10 @@ class SurePetFlapAPI(object):
         household_id = household_id or self.default_household
         self.cache['pet_status'][household_id] = {}
         for pet_id in self.get_pets( household_id ):
-            url = '%s/%s/position' % (_URL_PET, pet_id,)
+            url = '%s/%s' % (_URL_PET, pet_id,)
             headers = self._create_header()
             response = self._get_data(url)
-            self.cache['pet_status'][household_id][pet_id] = response['data']
+            self.cache['pet_status'][household_id][pet_id] = response['data']['position']
 
     #
     # Low level remote API wrappers.  Do not use.
